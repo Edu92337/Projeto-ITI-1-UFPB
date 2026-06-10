@@ -6,7 +6,7 @@
 using namespace std;
 
 struct Ppm{
-    array<uint32_t,256>alfabeto;
+    uint8_t alfabeto[256];
     Ppm(){
         for(int i = 0;i<256;i++)alfabeto[i] = i;
     }
