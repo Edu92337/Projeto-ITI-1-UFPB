@@ -8,21 +8,25 @@ using namespace std;
 
 class Codificador_aritmetico{
     public:
-        
-        vector<pair<string,double>> gera_mapa(string& palavra){
-            vector<pair<string,double>>mapa;
-            set<char> vistos;
-            double n = palavra.size();
-            for(char c : palavra){
-                if(vistos.count(c)) continue;
-                vistos.insert(c);
-                double q = count(palavra.begin(),palavra.end(),c);
-                mapa.push_back({string(1,c),q/n});
+        //gera o vetor representante das probabilidades
+        // O(N) [* acho que pode melhorar ]
+        vector<pair<uint8_t,double>> gera_mapa(const vector<uint8_t>& dados){
+            vector<pair<uint8_t,double>> mapa;
+            set<uint8_t> vistos;
+            double n = dados.size();
+
+            for(uint8_t b : dados){
+                if(vistos.count(b)) continue;
+                vistos.insert(b);
+                double q = count(dados.begin(), dados.end(), b);
+                mapa.push_back({b, q/n});
             }
+
             return mapa;
         }
-        // para usar no ppm
-        pair<double,double> encode_byte(string& atual,vector<pair<string,double>>&mapa, double& low, double& high){
+        // aplica as operações de ampliação e deslocamento do codificador
+        // retorna -> {limite inferior, limite superior}
+        pair<double,double> encode_byte(uint8_t& atual,vector<pair<uint8_t,double>>&mapa, double& low, double& high){
             double range = high - low;
             double p0 = low;
             for(auto [s,p] : mapa){
@@ -35,6 +39,7 @@ class Codificador_aritmetico{
                 }
             }
         }
+        // faz a transcrição para um numero após todos bytes serem codificados
         double valor_final(double low, double high){
             string low_s = to_string(low);
             string high_s = to_string(high);
