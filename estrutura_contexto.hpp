@@ -10,7 +10,6 @@ typedef struct No No;
 struct No{
     uint8_t byte;
     No* filhos[256];
-    bool fim_;
     array<uint32_t,256>frequencias;// armazena as frequencias de cada byte no contexto
     No* pai; 
     uint32_t total; //soma de todas as frequências
@@ -55,6 +54,14 @@ struct trie_contexto{
             else return atual;
         }
         return atual;
+    }
+    // faz a propagação para todos os contextos menores até a raiz
+    void atualiza_frequencia(No* contexto, uint32_t simbolo){
+        contexto->frequencias[simbolo]++;
+        contexto->total ++;
+        if(!contexto->pai) return ;
+        atualiza_frequencia(contexto->pai,simbolo);
+        
     }
 
 };
