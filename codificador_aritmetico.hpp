@@ -14,16 +14,16 @@ struct Codificador_aritmetico{
 
     // aplica as operações de ampliação e deslocamento do codificador
     // retorna -> {limite inferior, limite superior}
-    pair<uint32_t,uint32_t> encode_byte(uint8_t atual, No* contexto, uint32_t& low, uint32_t& high) {
+    pair<double,double> encode_byte(uint8_t atual, No* contexto, double& low, double& high) {
         auto& frequencias = contexto->frequencias;
         uint32_t total = contexto->total;
-        uint32_t range = high - low + 1;
-        uint32_t p0 = 0;
+        double range = high - low ;
+        double p0 = 0.0;
 
         for (int i = 0; i < 256; i++) {
             if (frequencias[i] == 0) continue;
             if (i == atual) {
-                high = low + range * (p0 + frequencias[i]) / total - 1;
+                high = low + range * (p0 + frequencias[i]) / total;
                 low  = low + range * p0 / total;
                 return {low, high};
             }
