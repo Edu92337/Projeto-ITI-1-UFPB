@@ -9,7 +9,12 @@ struct Ppm{
     uint8_t alfabeto[256];
     trie_contexto arvore;
     Codificador_aritmetico aritmetico;
-    Ppm(){
+    // Kmax e J vão ser passados como parâmetros da compilação
+    int Kmax;
+    int J;
+    Ppm(int k, int janela){
         for(int i = 0;i<256;i++)alfabeto[i] = i;
+        Kmax = k;
+        J = janela;
     }
 };
