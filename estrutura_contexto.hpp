@@ -8,17 +8,19 @@ typedef struct No No;
 // a ideia seria percorrer até a folha e codificar na subida, para dar prioridade ao maior contexto
 // Kmax <= 10 => O(Kmax)<= O(10) [acho que é ok]
 struct No{
+    uint8_t byte;
     No* filhos[256];
     bool fim_;
     array<uint32_t,256>frequencias;// armazena as frequencias de cada byte no contexto
     No* pai; 
     uint32_t total; //soma de todas as frequências
+
     No(){
-        fim_ = false;
         fill(filhos,filhos+256,nullptr);
         frequencias.fill(0);
         pai = nullptr;
         total = 0;
+        byte = 0;
     }
 };
 
@@ -27,11 +29,32 @@ struct trie_contexto{
     trie_contexto(){
         raiz = new No;
     }
-    void insere_byte_em_contexto(const vector<uint32_t>&palavra){
-        
+
+
+    // a partir do no Raiz vai percorrendo e fazendo a ligação do byte com todos os outros Nós
+    void insere_byte_em_contexto(const vector<uint32_t>&bytes){
+        No* atual = raiz;
+        // inverte para que ramos com contextos iguais compartilhem Nós
+        for(auto it = bytes.rbegin(); it != bytes.rend(); it++){
+            uint32_t b = *it;
+            if(!atual->filhos[b]) {
+                atual->filhos[b] = new No;
+                atual->filhos[b]->byte = b;
+                atual->filhos[b]->pai = atual; // faz a ligação da volta para a busca de Kpossivel -> K = -1(raiz)
+            }
+            atual = atual->filhos[b];
+        }
     }
-    void busca_contexto_byte(){
-        
+    // A partir da raiz vai percorrendo os nos que estão conectados/ contextos conectados 
+    //até encontrar o maior contexto possível 
+    No* busca_contexto_byte(const vector<uint32_t>&contexto){
+        No* atual = raiz;
+        for(auto it = contexto.rbegin();it!=contexto.rend();it++){
+            uint32_t b = *it;
+            if(atual->filhos[b])atual = atual->filhos[b];
+            else return atual;
+        }
+        return atual;
     }
 
 };

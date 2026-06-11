@@ -14,32 +14,33 @@ struct Codificador_aritmetico{
 
     // aplica as operações de ampliação e deslocamento do codificador
     // retorna -> {limite inferior, limite superior}
-    pair<double,double> encode_byte(uint8_t& atual,No* contexto, double& low, double& high){
+    pair<uint32_t,uint32_t> encode_byte(uint8_t atual, No* contexto, uint32_t& low, uint32_t& high) {
         auto& frequencias = contexto->frequencias;
-        double range = high - low;
-        double p0 = low;
         uint32_t total = contexto->total;
-        for(int i = 0;i<256;i++){
-            if(frequencias[i]==0) continue;// nao influencia no intervalo
-            if(i == atual){
-                high = p0 + range*((double)frequencias[i])/total;
-                low = p0;
-                return {low,high};
+        uint32_t range = high - low + 1;
+        uint32_t p0 = 0;
+
+        for (int i = 0; i < 256; i++) {
+            if (frequencias[i] == 0) continue;
+            if (i == atual) {
+                high = low + range * (p0 + frequencias[i]) / total - 1;
+                low  = low + range * p0 / total;
+                return {low, high};
             }
-            p0 += range*((double)frequencias[i])/total;
+            p0 += frequencias[i];  
         }
-        return {low,high};
+        return {low, high};
     }
     
     // decodificador  
-    uint8_t decode(double& n){
+    uint8_t decode(uint32_t& n){
 
     }
 
 
 
     // faz a transcrição para um numero após todos bytes serem codificados
-    double valor_final(double low, double high){
+    uint32_t valor_final(uint32_t low, uint32_t high){
         string low_s = to_string(low);
         string high_s = to_string(high);
         string final = "";
