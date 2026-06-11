@@ -6,7 +6,7 @@
 #include<bitset>
 #include"estrutura_contexto.hpp"
 using namespace std;
-
+const uint16_t ESCAPE = 256;
 
 
 typedef struct Codificador_aritmetico Codificador_aritmetico;
@@ -20,7 +20,7 @@ struct Codificador_aritmetico{
         double range = high - low ;
         double p0 = 0.0;
 
-        for (int i = 0; i < 256; i++) {
+        for (int i = 0; i < 257; i++) {
             if (frequencias[i] == 0) continue;
             if (i == atual) {
                 high = low + range * (p0 + frequencias[i]) / total;

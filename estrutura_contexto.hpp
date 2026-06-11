@@ -4,18 +4,19 @@
 using namespace std;
 typedef struct No No;
 
+const uint16_t ESCAPE = 256;
 // cada No é um contexto 
 // a ideia seria percorrer até a folha e codificar na subida, para dar prioridade ao maior contexto
 // Kmax <= 10 => O(Kmax)<= O(10) [acho que é ok]
 struct No{
     uint8_t byte;
-    No* filhos[256];
-    array<uint32_t,256>frequencias;// armazena as frequencias de cada byte no contexto
+    No* filhos[257];
+    array<uint32_t,257>frequencias;// armazena as frequencias de cada byte no contexto
     No* pai; 
     uint32_t total; //soma de todas as frequências
 
     No(){
-        fill(filhos,filhos+256,nullptr);
+        fill(filhos,filhos+257,nullptr);
         frequencias.fill(0);
         pai = nullptr;
         total = 0;
@@ -23,6 +24,7 @@ struct No{
     }
 };
 
+// Vai receber uma janela de contexto contendo J bytes vistos pelo PPM (vector<uint8_t>&bytes)
 struct trie_contexto{
     No* raiz;
     trie_contexto(){
@@ -31,7 +33,7 @@ struct trie_contexto{
 
 
     // a partir do no Raiz vai percorrendo e fazendo a ligação do byte com todos os outros Nós
-    void insere_byte_em_contexto(const vector<uint32_t>&bytes){
+    void insere_byte_em_contexto(const vector<uint8_t>&bytes){
         No* atual = raiz;
         // inverte para que ramos com contextos iguais compartilhem Nós
         for(auto it = bytes.rbegin(); it != bytes.rend(); it++){
@@ -46,7 +48,7 @@ struct trie_contexto{
     }
     // A partir da raiz vai percorrendo os nos que estão conectados/ contextos conectados 
     //até encontrar o maior contexto possível 
-    No* busca_contexto_byte(const vector<uint32_t>&contexto){
+    No* busca_contexto_byte(const vector<uint8_t>&contexto){
         No* atual = raiz;
         for(auto it = contexto.rbegin();it!=contexto.rend();it++){
             uint32_t b = *it;
@@ -56,7 +58,7 @@ struct trie_contexto{
         return atual;
     }
     // faz a propagação para todos os contextos menores até a raiz
-    void atualiza_frequencia(No* contexto, uint32_t simbolo){
+    void atualiza_frequencia(No* contexto, uint8_t simbolo){
         contexto->frequencias[simbolo]++;
         contexto->total ++;
         if(!contexto->pai) return ;
