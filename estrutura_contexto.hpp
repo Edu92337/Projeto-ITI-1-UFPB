@@ -5,6 +5,7 @@ using namespace std;
 typedef struct No No;
 
 const uint16_t ESCAPE = 256;
+const int TEMPOV = 1000; // tempo de vida arbitrário
 // cada No é um contexto 
 // a ideia seria percorrer até a folha e codificar na subida, para dar prioridade ao maior contexto
 // Kmax <= 10 => O(Kmax)<= O(10) [acho que é ok]
@@ -14,13 +15,14 @@ struct No{
     array<uint32_t,257>frequencias;// armazena as frequencias de cada byte no contexto
     No* pai; 
     uint32_t total; //soma de todas as frequências
-
-    No(){
+    int tempo_de_vida; // vai ser usado para os mecanismos de poda
+    No(int tempo = TEMPOV){
         fill(filhos,filhos+257,nullptr);
         frequencias.fill(0);
         pai = nullptr;
         total = 0;
         byte = 0;
+        tempo_de_vida = tempo;
     }
 };
 
@@ -28,7 +30,7 @@ struct No{
 struct trie_contexto{
     No* raiz;
     trie_contexto(){
-        raiz = new No;
+        raiz = new No();
     }
 
 
