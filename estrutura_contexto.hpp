@@ -1,6 +1,7 @@
 #include<iostream>
 #include<map>
 #include<algorithm>
+#include<vector>
 using namespace std;
 typedef struct No No;
 
@@ -12,13 +13,13 @@ const int TEMPOV = 1000; // tempo de vida arbitrário
 struct No{
     uint8_t byte;
     No* filhos[257];
-    array<uint32_t,257>frequencias;// armazena as frequencias de cada byte no contexto
+    vector<uint32_t>frequencias;// armazena as frequencias de cada byte no contexto
     No* pai; 
     uint32_t total; //soma de todas as frequências
     int tempo_de_vida; // vai ser usado para os mecanismos de poda
     No(int tempo = TEMPOV){
         fill(filhos,filhos+257,nullptr);
-        frequencias.fill(0);
+        frequencias.assign(257,0);
         pai = nullptr;
         total = 0;
         byte = 0;
