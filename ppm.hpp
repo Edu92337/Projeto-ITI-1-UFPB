@@ -1,5 +1,6 @@
 #include<iostream>
 #include<array>
+#include<set>
 #include"codificador_aritmetico.hpp"
 #include"estrutura_contexto.hpp"
 
@@ -10,7 +11,7 @@ struct Ppm{
     trie_contexto arvore;
     vector<uint8_t> janela_atual;
     Codificador_aritmetico aritmetico;
-
+    set<uint8_t>excluidos; // bytes ja vistos -> precisa ser limpo a cada novo byte 
     double low,high;
     // Kmax e J vão ser passados como parâmetros da compilação
     int Kmax;
@@ -42,23 +43,41 @@ struct Ppm{
     void insere_contexto(){
         //
     } 
+    void insere_em_excluidos(No* contexto){
+        for(int i = 0;i<256;i++){
+            if(contexto->frequencias[i]>0)excluidos.insert(i);
+        }
+    }
+    void realiza_exclusao_contexto(No* contexto){
+        for(int i = 0;i<256;i++){
+            if(excluidos.count(i) != 0)contexto->frequencias[i] = 0;
+        }
+    }
+    
     void processa_simbolo(uint8_t atual){
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         // percorre, subindo, procurando onde codificar o simbolo
         // a raiz está inclusa
         while(contexto){
             if(existe_contexto(contexto,atual)){
-                aritmetico.encode_byte(atual,contexto,low,high);
+                aritmetico.encode_byte(atual,contexto,excluidos,low,high);
                 arvore.atualiza_frequencia(contexto,atual);
+                excluidos.clear();
                 return ;
             }else{
-                aritmetico.encode_byte(ESCAPE,contexto,low,high);
+                // o set<uint8_t>excluidos precisa ser modificado antes de codificado
+                // caso tenha exclusão
+                aritmetico.encode_byte(ESCAPE,contexto,excluidos,low,high);
+                insere_em_excluidos(contexto);
                 contexto->frequencias[ESCAPE]++;
                 contexto->total++;
             }
             contexto = contexto->pai;
         }
+
         // chegou em k = -1 -> usa distribuição uniforme
-        
+        // processa em k =-1(FALTA)
+        // limpar excluidos para processar um byte novo
+        excluidos.clear();
     }
 };

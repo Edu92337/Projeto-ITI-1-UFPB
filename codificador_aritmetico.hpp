@@ -14,13 +14,21 @@ struct Codificador_aritmetico{
 
     // aplica as operações de ampliação e deslocamento do codificador
     // retorna -> {limite inferior, limite superior}
-    pair<double,double> encode_byte(uint8_t atual, No* contexto, double& low, double& high) {
+    uint32_t contagem_excluidos(No* contexto,set<uint8_t>&excluidos){
+        uint32_t t = 0;
+        for(auto b : excluidos){
+            t += contexto->frequencias[b];
+        }
+        return t;
+    }
+    pair<double,double> encode_byte(uint8_t atual, No* contexto,set<uint8_t>&excluidos, double& low, double& high) {
         auto& frequencias = contexto->frequencias;
-        uint32_t total = contexto->total;
+        uint32_t total = contexto->total-contagem_excluidos(contexto,excluidos);
         double range = high - low ;
         double p0 = 0.0;
 
         for (int i = 0; i < 257; i++) {
+            if(excluidos.count(i) != 0) continue;
             if (frequencias[i] == 0) continue;
             if (i == atual) {
                 high = low + range * (p0 + frequencias[i]) / total;
