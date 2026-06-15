@@ -13,7 +13,7 @@ struct Ppm{
     deque<uint8_t> janela_atual;
     Codificador_aritmetico aritmetico;
     set<uint8_t>excluidos; // bytes ja vistos -> precisa ser limpo a cada novo byte 
-    queue<uint8_t> janela_j; // janela para acompanhar as métricas
+    deque<uint8_t> janela_j; // janela para acompanhar as métricas
     double low,high;
     // Kmax e J vão ser passados como parâmetros da compilação
     int Kmax;
@@ -69,8 +69,8 @@ struct Ppm{
         bool codificado = false;
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         //atualiza a janela para as métricas
-        if(janela_j.size()>=J)janela_j.pop();
-        janela_j.push(atual);
+        if(janela_j.size()>=J)janela_j.pop_front();
+        janela_j.push_back(atual);
 
         
         // percorre, subindo, procurando onde codificar o simbolo
