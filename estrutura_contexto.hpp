@@ -2,6 +2,7 @@
 #include<map>
 #include<algorithm>
 #include<vector>
+#include<queue>
 using namespace std;
 typedef struct No No;
 
@@ -36,7 +37,7 @@ struct trie_contexto{
 
 
     // a partir do no Raiz vai percorrendo e fazendo a ligação do byte com todos os outros Nós
-    void insere_byte_em_contexto(const vector<uint8_t>&bytes){
+    void insere_byte_em_contexto(const deque<uint8_t>&bytes){
         No* atual = raiz;
         // inverte para que ramos com contextos iguais compartilhem Nós
         for(auto it = bytes.rbegin(); it != bytes.rend(); it++){
@@ -51,7 +52,7 @@ struct trie_contexto{
     }
     // A partir da raiz vai percorrendo os nos que estão conectados/ contextos conectados 
     //até encontrar o maior contexto possível 
-    No* busca_contexto_byte(const vector<uint8_t>&contexto){
+    No* busca_contexto_byte(const deque<uint8_t>&contexto){
         No* atual = raiz;
         for(auto it = contexto.rbegin();it!=contexto.rend();it++){
             uint32_t b = *it;
