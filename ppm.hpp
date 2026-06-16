@@ -15,6 +15,7 @@ struct Ppm{
     Codificador_aritmetico aritmetico;
     set<uint8_t>excluidos; // bytes ja vistos -> precisa ser limpo a cada novo byte 
     deque<uint8_t> janela_j; // janela para acompanhar as métricas
+    No* equiprovaveis;
     double low,high;
     // Kmax e J vão ser passados como parâmetros da compilação
     int Kmax;
@@ -25,11 +26,14 @@ struct Ppm{
         J = tamanho;
         low = 0;
         high = 1;
+        equiprovaveis = new No();
+        inicia_equiprovaveis();
     }
-    void le_nova_janela(){
-        // faz a leitura de novos J bytes
+    void inicia_equiprovaveis(){
+        for(int i = 0;i<256;i++)equiprovaveis -> frequencias[i]=1;
+        equiprovaveis->total = 256;
+    }
 
-    }
     bool existe_contexto(No* contexto,uint8_t simbolo){
         return contexto->frequencias[simbolo] > 0;
     }
@@ -69,6 +73,7 @@ struct Ppm{
     void processa_simbolo(uint8_t atual){
         bool codificado = false;
         No* contexto = arvore.busca_contexto_byte(janela_atual);
+        No* contexto_inicial = contexto;
         //atualiza a janela para as métricas
         if(janela_j.size()>=J)janela_j.pop_front();
         janela_j.push_back(atual);
@@ -77,10 +82,11 @@ struct Ppm{
         // percorre, subindo, procurando onde codificar o simbolo
         // a raiz está inclusa
         while(contexto){
-            if(existe_contexto(contexto,atual)){
+            if(existe_contexto(contexto,atual) && excluidos.count(atual)==0){
                 aritmetico.encode_byte(atual,contexto,excluidos,low,high);
                 arvore.atualiza_frequencia(contexto,atual);
                 codificado = true;
+                if(equiprovaveis->frequencias[atual]>0) equiprovaveis->frequencias[atual]--;
                 break ;
             }else{
                 // o set<uint8_t>excluidos precisa ser modificado antes de codificado
@@ -95,8 +101,9 @@ struct Ppm{
         
 
         if(codificado == false){
-            // chegou em k = -1 -> usa distribuição uniforme
-            // processa em k =-1(FALTA)
+            aritmetico.encode_byte(atual,equiprovaveis,excluidos,low,high);
+            arvore.atualiza_frequencia(contexto_inicial,atual);
+            if(equiprovaveis->frequencias[atual]>0) equiprovaveis->frequencias[atual]--;
         }
 
         atualiza_contexto(atual);
