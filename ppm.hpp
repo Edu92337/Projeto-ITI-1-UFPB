@@ -19,7 +19,7 @@ struct Ppm{
     // Kmax e J vão ser passados como parâmetros da compilação
     int Kmax;
     int J;
-    Ppm(int k, int tamanho){
+    Ppm(int k, int tamanho,int adaptacao){
         for(int i = 0;i<256;i++)alfabeto[i] = i;
         Kmax = k;
         J = tamanho;
