@@ -1,3 +1,4 @@
+#pragma once
 #include<iostream>
 #include<map>
 #include<algorithm>
@@ -6,7 +7,7 @@
 using namespace std;
 typedef struct No No;
 
-const uint16_t ESCAPE = 256;
+const uint32_t ESCAPE = 256;
 const int TEMPOV = 1000; // tempo de vida arbitrário
 // cada No é um contexto 
 // a ideia seria percorrer até a folha e codificar na subida, para dar prioridade ao maior contexto

@@ -1,12 +1,13 @@
+#pragma once
 #include <iostream>
 #include <vector>
 #include<set>
 #include<map>
 #include<algorithm>
 #include<bitset>
+#include<cstdint>
 #include"estrutura_contexto.hpp"
 using namespace std;
-const uint16_t ESCAPE = 256;
 
 
 typedef struct Codificador_aritmetico Codificador_aritmetico;
@@ -21,7 +22,7 @@ struct Codificador_aritmetico{
         }
         return t;
     }
-    pair<double,double> encode_byte(uint8_t atual, No* contexto,set<uint8_t>&excluidos, double& low, double& high) {
+    pair<double,double> encode_byte(uint16_t atual, No* contexto,set<uint8_t>&excluidos, double& low, double& high) {
         auto& frequencias = contexto->frequencias;
         uint32_t total = contexto->total-contagem_excluidos(contexto,excluidos);
         double range = high - low ;
@@ -40,12 +41,7 @@ struct Codificador_aritmetico{
         return {low, high};
     }
     
-    // decodificador  
-    uint8_t decode(uint32_t& n){
-
-    }
-
-
+    
 
     // faz a transcrição para um numero após todos bytes serem codificados
     uint32_t valor_final(uint32_t low, uint32_t high){
