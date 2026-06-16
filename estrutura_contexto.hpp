@@ -1,6 +1,7 @@
 #pragma once
 #include<iostream>
 #include<map>
+#include<unordered_map>
 #include<algorithm>
 #include<vector>
 #include<queue>
@@ -14,13 +15,12 @@ const int TEMPOV = 1000; // tempo de vida arbitrário
 // Kmax <= 10 => O(Kmax)<= O(10) [acho que é ok]
 struct No{
     uint8_t byte;
-    No* filhos[257];
+    unordered_map<uint8_t, No*> filhos;
     vector<uint32_t>frequencias;// armazena as frequencias de cada byte no contexto
     No* pai; 
     uint32_t total; //soma de todas as frequências
     int tempo_de_vida; // vai ser usado para os mecanismos de poda
     No(int tempo = TEMPOV){
-        fill(filhos,filhos+257,nullptr);
         frequencias.assign(257,0);
         pai = nullptr;
         total = 0;
@@ -42,8 +42,8 @@ struct trie_contexto{
         No* atual = raiz;
         // inverte para que ramos com contextos iguais compartilhem Nós
         for(auto it = bytes.rbegin(); it != bytes.rend(); it++){
-            uint32_t b = *it;
-            if(!atual->filhos[b]) {
+            uint8_t b = *it;
+            if(atual->filhos.find(b) == atual->filhos.end()) {
                 atual->filhos[b] = new No;
                 atual->filhos[b]->byte = b;
                 atual->filhos[b]->pai = atual; // faz a ligação da volta para a busca de Kpossivel -> K = -1(raiz)
@@ -56,8 +56,8 @@ struct trie_contexto{
     No* busca_contexto_byte(const deque<uint8_t>&contexto){
         No* atual = raiz;
         for(auto it = contexto.rbegin();it!=contexto.rend();it++){
-            uint32_t b = *it;
-            if(atual->filhos[b])atual = atual->filhos[b];
+            uint8_t b = *it;
+            if(atual->filhos.find(b) != atual->filhos.end())atual = atual->filhos[b];
             else return atual;
         }
         return atual;
