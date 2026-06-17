@@ -80,34 +80,45 @@ struct Ppm{
         // a raiz está inclusa
         while(contexto){
             if(existe_contexto(contexto,atual) && excluidos.count(atual)==0){
-                aritmetico.encode_byte(atual,contexto,excluidos);
-                arvore.atualiza_frequencia(contexto,atual);
-                codificado = true;
-                if(equiprovaveis->frequencias[atual]>0){
-                    equiprovaveis->frequencias[atual]--;
-                    equiprovaveis->total --;
+                // Tenta codificar o símbolo neste contexto
+                if(aritmetico.encode_byte(atual,contexto,excluidos)){
+                    codificado = true;
+                    if(equiprovaveis->frequencias[atual]>0){
+                        equiprovaveis->frequencias[atual]--;
+                        equiprovaveis->total --;
+                    }
+                    break;
                 }
-                break ;
             }else{
                 // o set<uint8_t>excluidos precisa ser modificado antes de codificado
                 // caso tenha exclusão
-                aritmetico.encode_byte(ESCAPE,contexto,excluidos);
-                insere_em_excluidos(contexto);
-                contexto->frequencias[ESCAPE]++;
-                contexto->total++;
+                // Tenta codificar ESCAPE e verifica se foi bem-sucedido
+                if(aritmetico.encode_byte(ESCAPE,contexto,excluidos)){
+                    insere_em_excluidos(contexto);
+                    contexto->frequencias[ESCAPE]++;
+                    contexto->total++;
+                    // Continua para tentar contextos menores
+                }
             }
             contexto = contexto->pai;
         }
         
 
         if(codificado == false){
-            aritmetico.encode_byte(atual,equiprovaveis,excluidos);
-            arvore.atualiza_frequencia(contexto_inicial,atual);
-            if(equiprovaveis->frequencias[atual]>0) {
-                equiprovaveis->frequencias[atual]--;
-                equiprovaveis->total--;
+            // Se não codificou em nenhum contexto, codifica com equiprováveis
+            if(aritmetico.encode_byte(atual,equiprovaveis,excluidos)){
+                if(equiprovaveis->frequencias[atual]>0) {
+                    equiprovaveis->frequencias[atual]--;
+                    equiprovaveis->total--;
+                }
             }
         }
+
+        // sempre propaga a partir do contexto de ORDEM MAIS ALTA
+        // tentado (contexto_inicial), independente de qual nível efetivamente
+        // codificou o símbolo. Isso garante que todos os contextos no caminho
+        // -1,0,1,...,Kmax aprendam sobre "atual", inclusive os que deram ESCAPE.
+        arvore.atualiza_frequencia(contexto_inicial,atual);
 
         atualiza_contexto(atual);
         // limpar excluidos para processar um byte novo
