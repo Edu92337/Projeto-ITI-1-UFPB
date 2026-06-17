@@ -39,15 +39,19 @@ int main(int argc , char* argv[]) {
         ifstream arquivo(arq.path(),ios::binary);
         if(!arquivo.is_open()){
             cout <<"Erro ao abrir o arquivo!"<<endl;
-        return 1;
-    }
+            return 1;
+        }
         codifica_arquivo(arquivo, modelo, metricas);
         //análise das métricas parciais(lf > lo*(1+p)? -> pode ou clear)
     }
-    
-    //analise das metricas finais
-    
-    cout <<modelo.aritmetico.valor_final(modelo.low,modelo.high)<<endl;
+
+    // flush final: emite os bits restantes para fechar o intervalo
+    modelo.aritmetico.finaliza_codificacao();
+
+    // salva o stream de bits resultante em arquivo
+    modelo.aritmetico.salva_arquivo("saida.bin");
+
+    cout << "Total de bits emitidos: " << modelo.aritmetico.tamanho_comprimido() * 8 << endl;
 
     return 0;
 }
