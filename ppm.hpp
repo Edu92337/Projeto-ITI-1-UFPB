@@ -44,9 +44,16 @@ struct Ppm{
         arvore.atualiza_frequencia(contexto,atual);
     }
 
-    void insere_contexto(){
-        //
-    } 
+    uint32_t calcula_escape(No* contexto){
+        uint32_t distintos = 0;
+
+        for(int i=0;i<256;i++){
+            if(contexto->frequencias[i] > 0)
+                distintos++;
+        }
+
+        return max(1u, distintos);
+    }
     void insere_em_excluidos(No* contexto){
         for(int i = 0;i<256;i++){
             if(contexto->frequencias[i]>0)excluidos.insert(i);
@@ -89,17 +96,24 @@ struct Ppm{
                     }
                     break;
                 }
-            }else{
-                // o set<uint8_t>excluidos precisa ser modificado antes de codificado
-                // caso tenha exclusão
-                // Tenta codificar ESCAPE e verifica se foi bem-sucedido
-                if(aritmetico.encode_byte(ESCAPE,contexto,excluidos)){
+            }else if(excluidos.count(atual)==0){
+                // símbolo não existe neste contexto (e não está excluído):
+                // emite ESCAPE para sinalizar fallback ao contexto menor
+                // ESCAPE = número de símbolos distintos do contexto (não acumula estado)
+                uint32_t freq_esc = calcula_escape(contexto);
+                contexto->frequencias[ESCAPE] = freq_esc;
+                contexto->total += freq_esc;
+                bool escapou = aritmetico.encode_byte(ESCAPE, contexto, excluidos);
+                // desfaz injeção temporária — ESCAPE não persiste nas frequências
+                contexto->frequencias[ESCAPE] = 0;
+                contexto->total -= freq_esc;
+                if(escapou){
                     insere_em_excluidos(contexto);
-                    contexto->frequencias[ESCAPE]++;
-                    contexto->total++;
                     // Continua para tentar contextos menores
                 }
             }
+            // se atual está em excluidos: sobe silenciosamente, ESCAPE já foi
+            // emitido pelo nível que originou a exclusão
             contexto = contexto->pai;
         }
         
