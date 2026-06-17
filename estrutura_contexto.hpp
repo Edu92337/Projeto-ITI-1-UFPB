@@ -22,8 +22,10 @@ struct No{
     int tempo_de_vida; // vai ser usado para os mecanismos de poda
     No(int tempo = TEMPOV){
         frequencias.assign(257,0);
+        // Inicializa ESCAPE com frequência 1 para que sempre seja codificável
+        frequencias[ESCAPE] = 1;
         pai = nullptr;
-        total = 0;
+        total = 1;  // Começa com 1 por causa do ESCAPE
         byte = 0;
         tempo_de_vida = tempo;
     }
