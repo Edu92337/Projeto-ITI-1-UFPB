@@ -48,6 +48,9 @@ int main(int argc , char* argv[]) {
     // flush final: emite os bits restantes para fechar o intervalo
     modelo.aritmetico.finaliza_codificacao();
 
+    // Imprime estatísticas da trie
+    modelo.arvore.imprime_estatisticas_trie(k);
+
     // salva o stream de bits resultante em arquivo
     modelo.aritmetico.salva_arquivo("saida.bin");
 

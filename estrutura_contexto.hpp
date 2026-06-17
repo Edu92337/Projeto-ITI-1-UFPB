@@ -83,4 +83,41 @@ struct trie_contexto{
         
     }
 
+    // Calcula estatísticas de profundidade da trie
+    void calcula_profundidades(No* no, int profundidade, vector<int>& contadores) {
+        if (!no) return;
+        if (profundidade < (int)contadores.size()) {
+            contadores[profundidade]++;
+        }
+        for (auto& [_, filho] : no->filhos) {
+            calcula_profundidades(filho, profundidade + 1, contadores);
+        }
+    }
+
+    void imprime_estatisticas_trie(int kmax) {
+        vector<int> contadores(kmax + 2, 0);
+        calcula_profundidades(raiz, 0, contadores);
+        
+        cout << "\n=== ESTATÍSTICAS DA TRIE ===" << endl;
+        cout << "Kmax: " << kmax << endl;
+        cout << "Distribuição de profundidades:" << endl;
+        
+        uint64_t total_nos = 0;
+        for (int i = 0; i < (int)contadores.size(); i++) {
+            if (contadores[i] > 0) {
+                cout << "  Profundidade " << i << ": " << contadores[i] << " nós";
+                if (i == kmax) cout << " (MAX)";
+                cout << endl;
+                total_nos += contadores[i];
+            }
+        }
+        
+        int nos_em_kmax = contadores[kmax];
+        double percentual_kmax = (total_nos > 0) ? (100.0 * nos_em_kmax / total_nos) : 0;
+        
+        cout << "\nTotal de nós: " << total_nos << endl;
+        cout << "Nós em profundidade Kmax: " << nos_em_kmax << " (" << percentual_kmax << "%)" << endl;
+        cout << "==========================\n" << endl;
+    }
+
 };
