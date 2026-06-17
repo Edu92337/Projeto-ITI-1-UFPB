@@ -27,6 +27,7 @@ struct No{
         byte = 0;
         tempo_de_vida = tempo;
     }
+    
 };
 
 // Vai receber uma janela de contexto contendo J bytes vistos pelo PPM (vector<uint8_t>&bytes)
@@ -34,6 +35,17 @@ struct trie_contexto{
     No* raiz;
     trie_contexto(){
         raiz = new No();
+    }
+    ~trie_contexto(){
+        libera(raiz);
+    }
+
+    void libera(No* no){
+        if(!no) return;
+        for(auto& [_, filho] : no->filhos)
+            libera(filho);
+
+        delete no;
     }
 
 
