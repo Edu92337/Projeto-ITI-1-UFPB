@@ -16,7 +16,6 @@ struct Ppm{
     set<uint8_t>excluidos; // bytes ja vistos -> precisa ser limpo a cada novo byte 
     deque<uint8_t> janela_j; // janela para acompanhar as métricas
     No* equiprovaveis;
-    double low,high;
     // Kmax e J vão ser passados como parâmetros da compilação
     int Kmax;
     int J;
@@ -24,8 +23,6 @@ struct Ppm{
         for(int i = 0;i<256;i++)alfabeto[i] = i;
         Kmax = k;
         J = tamanho;
-        low = 0;
-        high = 1;
         equiprovaveis = new No();
         inicia_equiprovaveis();
     }
@@ -83,15 +80,18 @@ struct Ppm{
         // a raiz está inclusa
         while(contexto){
             if(existe_contexto(contexto,atual) && excluidos.count(atual)==0){
-                aritmetico.encode_byte(atual,contexto,excluidos,low,high);
+                aritmetico.encode_byte(atual,contexto,excluidos);
                 arvore.atualiza_frequencia(contexto,atual);
                 codificado = true;
-                if(equiprovaveis->frequencias[atual]>0) equiprovaveis->frequencias[atual]--;
+                if(equiprovaveis->frequencias[atual]>0){
+                    equiprovaveis->frequencias[atual]--;
+                    equiprovaveis->total --;
+                }
                 break ;
             }else{
                 // o set<uint8_t>excluidos precisa ser modificado antes de codificado
                 // caso tenha exclusão
-                aritmetico.encode_byte(ESCAPE,contexto,excluidos,low,high);
+                aritmetico.encode_byte(ESCAPE,contexto,excluidos);
                 insere_em_excluidos(contexto);
                 contexto->frequencias[ESCAPE]++;
                 contexto->total++;
@@ -101,9 +101,12 @@ struct Ppm{
         
 
         if(codificado == false){
-            aritmetico.encode_byte(atual,equiprovaveis,excluidos,low,high);
+            aritmetico.encode_byte(atual,equiprovaveis,excluidos);
             arvore.atualiza_frequencia(contexto_inicial,atual);
-            if(equiprovaveis->frequencias[atual]>0) equiprovaveis->frequencias[atual]--;
+            if(equiprovaveis->frequencias[atual]>0) {
+                equiprovaveis->frequencias[atual]--;
+                equiprovaveis->total--;
+            }
         }
 
         atualiza_contexto(atual);
