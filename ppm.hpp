@@ -12,128 +12,164 @@ struct Ppm{
     trie_contexto arvore;
     deque<uint8_t> janela_atual;
     Codificador_aritmetico aritmetico;
-    set<uint8_t>excluidos; // bytes ja vistos -> precisa ser limpo a cada novo byte 
-    deque<uint8_t> janela_j; // janela para acompanhar as métricas
+    set<uint8_t> excluidos;
+    deque<uint8_t> janela_j;
     No* equiprovaveis;
-    // Kmax e J vão ser passados como parâmetros da compilação
+
+    float p_threshold;
+    uint64_t bits_janela_ant;
+    uint64_t bits_janela_cur;
+    uint32_t simbolos_na_janela;
+
     int Kmax;
     int J;
-    Ppm(int k, int tamanho,int adaptacao){
+    int adaptacao_modo;
+
+    Ppm(int k, int tamanho, int adaptacao, float p = 0.10f){
         Kmax = k;
         J = tamanho;
+        adaptacao_modo = adaptacao;
+        p_threshold = p;
+        bits_janela_ant = 0;
+        bits_janela_cur = 0;
+        simbolos_na_janela = 0;
         equiprovaveis = new No();
         inicia_equiprovaveis();
     }
+
+    ~Ppm(){
+        delete equiprovaveis;
+    }
+
     void inicia_equiprovaveis(){
-        for(int i = 0;i<256;i++)equiprovaveis -> frequencias[i]=1;
+        for(int i = 0; i < 256; i++) equiprovaveis->frequencias[i] = 1;
         equiprovaveis->total = 256;
     }
 
-    bool existe_contexto(No* contexto,uint8_t simbolo){
+    bool existe_contexto(No* contexto, uint8_t simbolo){
         return contexto->frequencias[simbolo] > 0;
-    }
-    No* busca_maior_contexto(deque<uint8_t>&janela){
-        // Busca o maior contexto possivel para aquela janela de bytes e tenta codificar o simbolo
-        No* maior_contexto_possivel = arvore.busca_contexto_byte(janela);
-        return maior_contexto_possivel;
-    }
-    void atualiza_frequencia_contexto(No* contexto,uint8_t atual){
-        // atualiza no contexto usado
-        arvore.atualiza_frequencia(contexto,atual);
     }
 
     uint32_t calcula_escape(No* contexto){
         uint32_t distintos = 0;
-
-        for(int i=0;i<256;i++){
-            if(contexto->frequencias[i] > 0)
-                distintos++;
+        for(int i = 0; i < 256; i++){
+            if(contexto->frequencias[i] > 0) distintos++;
         }
-
         return max(1u, distintos);
     }
+
     void insere_em_excluidos(No* contexto){
-        for(int i = 0;i<256;i++){
-            if(contexto->frequencias[i]>0)excluidos.insert(i);
+        for(int i = 0; i < 256; i++){
+            if(contexto->frequencias[i] > 0) excluidos.insert(i);
         }
     }
-    void realiza_exclusao_contexto(No* contexto){
-        for(int i = 0;i<256;i++){
-            if(excluidos.count(i) != 0)contexto->frequencias[i] = 0;
-        }
-    }
-    
+
     void atualiza_contexto(uint8_t atual){
-        // limita o comprimento do contexto atual para Kmax
-        // modifica aqui para não modificar a estrutura da trie
         janela_atual.push_back(atual);
-        if (janela_atual.size() > Kmax)
+        if(janela_atual.size() > (size_t)Kmax)
             janela_atual.pop_front();
         arvore.insere_byte_em_contexto(janela_atual);
+    }
+
+    void verifica_adaptacao(){
+        if(bits_janela_ant == 0) return;
+
+        double L_ant = (double)bits_janela_ant / J;
+        double L_cur = (double)bits_janela_cur / J;
+
+        if(L_cur > L_ant * (1.0 + p_threshold)){
+            if(adaptacao_modo == 1){
+                executa_reset();
+            } else if(adaptacao_modo == 2){
+                executa_poda(2);
+            }
+        }
+    }
+
+    void executa_reset(){
+        // Grava marcador literal de 32 bits no buffer para o descompressor
+        // Usa padrão 0xFFFFFFFF que não pode ocorrer naturalmente no fluxo aritmético
+        // (o codificador aritmético nunca emite high == TOP sem renormalizar)
+        for(int i = 0; i < 32; i++)
+            aritmetico.escreve_bit(1);  // marcador: 32 bits 1
+
+        arvore.reset();
+        janela_atual.clear();
+        excluidos.clear();
+        inicia_equiprovaveis();
+        // estado do codificador aritmético (low/high) NÃO é resetado:
+        // o fluxo de bits é contínuo
+    }
+
+    void executa_poda(uint32_t limiar){
+        // Grava marcador diferente: 31 bits 1 seguido de 1 bit 0
+        for(int i = 0; i < 31; i++)
+            aritmetico.escreve_bit(1);
+        aritmetico.escreve_bit(0);
+
+        uint32_t removidos = arvore.poda(limiar);
+        janela_atual.clear();
+        excluidos.clear();
+        cout << "[PODA] Nós removidos: " << removidos << endl;
     }
 
     void processa_simbolo(uint8_t atual){
         bool codificado = false;
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         No* contexto_inicial = contexto;
-        //atualiza a janela para as métricas
-        if(janela_j.size()>=J)janela_j.pop_front();
+
+        uint64_t bits_antes = aritmetico.bits_buffer.size();
+
+        if((int)janela_j.size() >= J) janela_j.pop_front();
         janela_j.push_back(atual);
 
-        
-        // percorre, subindo, procurando onde codificar o simbolo
-        // a raiz está inclusa
         while(contexto){
-            if(existe_contexto(contexto,atual) && excluidos.count(atual)==0){
-                // Tenta codificar o símbolo neste contexto
-                if(aritmetico.encode_byte(atual,contexto,excluidos)){
+            if(existe_contexto(contexto, atual) && excluidos.count(atual) == 0){
+                if(aritmetico.encode_byte(atual, contexto, excluidos)){
                     codificado = true;
-                    if(equiprovaveis->frequencias[atual]>0){
+                    if(equiprovaveis->frequencias[atual] > 0){
                         equiprovaveis->frequencias[atual]--;
-                        equiprovaveis->total --;
+                        equiprovaveis->total--;
                     }
                     break;
                 }
-            }else if(excluidos.count(atual)==0){
-                // símbolo não existe neste contexto (e não está excluído):
-                // emite ESCAPE para sinalizar fallback ao contexto menor
-                // ESCAPE = número de símbolos distintos do contexto (não acumula estado)
+            } else if(excluidos.count(atual) == 0){
                 uint32_t freq_esc = calcula_escape(contexto);
                 contexto->frequencias[ESCAPE] = freq_esc;
                 contexto->total += freq_esc;
                 bool escapou = aritmetico.encode_byte(ESCAPE, contexto, excluidos);
-                // desfaz injeção temporária — ESCAPE não persiste nas frequências
                 contexto->frequencias[ESCAPE] = 0;
                 contexto->total -= freq_esc;
                 if(escapou){
                     insere_em_excluidos(contexto);
-                    // Continua para tentar contextos menores
                 }
             }
-            // se atual está em excluidos: sobe silenciosamente, ESCAPE já foi
-            // emitido pelo nível que originou a exclusão
             contexto = contexto->pai;
         }
-        
 
-        if(codificado == false){
-            // Se não codificou em nenhum contexto, codifica com equiprováveis
-            if(aritmetico.encode_byte(atual,equiprovaveis,excluidos)){
-                if(equiprovaveis->frequencias[atual]>0) {
+        if(!codificado){
+            if(aritmetico.encode_byte(atual, equiprovaveis, excluidos)){
+                if(equiprovaveis->frequencias[atual] > 0){
                     equiprovaveis->frequencias[atual]--;
                     equiprovaveis->total--;
                 }
             }
         }
 
-        // sempre propaga a partir do contexto de ORDEM MAIS ALTA
-        // tentado (contexto_inicial), independente de qual nível efetivamente
-        // codificou o símbolo. Isso garante que todos os contextos no caminho
-        // -1,0,1,...,Kmax aprendam sobre "atual", inclusive os que deram ESCAPE.
-        arvore.atualiza_frequencia(contexto_inicial,atual);
-
+        arvore.atualiza_frequencia(contexto_inicial, atual);
         atualiza_contexto(atual);
-        // limpar excluidos para processar um byte novo
         excluidos.clear();
+
+        // --- Monitoramento de taxa ---
+        uint64_t bits_depois = aritmetico.bits_buffer.size();
+        bits_janela_cur += (bits_depois - bits_antes);
+        simbolos_na_janela++;
+
+        if(simbolos_na_janela >= (uint32_t)J){
+            verifica_adaptacao();
+            bits_janela_ant = bits_janela_cur;
+            bits_janela_cur = 0;
+            simbolos_na_janela = 0;
+        }
     }
 };

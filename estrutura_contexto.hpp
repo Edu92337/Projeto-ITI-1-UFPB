@@ -48,6 +48,50 @@ struct trie_contexto{
         delete no;
     }
 
+    // Remove nós folha com total < limiar (poda conservadora)
+    // Retorna número de nós removidos
+    uint32_t poda(uint32_t limiar) {
+        return poda_rec(raiz, limiar);
+    }
+
+    uint32_t poda_rec(No* no, uint32_t limiar) {
+        if (!no) return 0;
+        uint32_t removidos = 0;
+        
+        // Percorre filhos — usa lista separada para não invalidar iterador
+        vector<uint8_t> para_remover;
+        for (auto& [byte, filho] : no->filhos) {
+            // Primeiro, poda recursivamente os netos
+            removidos += poda_rec(filho, limiar);
+            // Se após a poda o filho ficou sem filhos E tem total < limiar, remove
+            if (filho->filhos.empty() && filho->total < limiar) {
+                para_remover.push_back(byte);
+            }
+        }
+        for (uint8_t b : para_remover) {
+            // Subtrai do pai as frequências do filho que será removido
+            No* filho = no->filhos[b];
+            for (int i = 0; i < 257; i++) {
+                if (filho->frequencias[i] > 0) {
+                    no->frequencias[i] = (no->frequencias[i] >= filho->frequencias[i])
+                        ? no->frequencias[i] - filho->frequencias[i] : 0;
+                }
+            }
+            no->total = 0;
+            for (int i = 0; i < 257; i++) no->total += no->frequencias[i];
+            
+            delete filho;
+            no->filhos.erase(b);
+            removidos++;
+        }
+        return removidos;
+    }
+
+    void reset() {
+        libera(raiz);
+        raiz = new No();
+    }
+
 
     // a partir do no Raiz vai percorrendo e fazendo a ligação do byte com todos os outros Nós
     void insere_byte_em_contexto(const deque<uint8_t>&bytes){
