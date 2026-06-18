@@ -122,5 +122,8 @@ struct trie_contexto{
         libera(raiz);
         raiz = new No();
     }
+    void poda(){
+        // poda para melhorar eficiencia em mudança de tipo de arquivo
+    }
     
 };
