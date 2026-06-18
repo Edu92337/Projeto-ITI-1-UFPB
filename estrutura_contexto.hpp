@@ -12,10 +12,9 @@ const uint32_t ESCAPE = 256;
 const int TEMPOV = 1000; // tempo de vida arbitrário
 // cada No é um contexto 
 // a ideia seria percorrer até a folha e codificar na subida, para dar prioridade ao maior contexto
-// Kmax <= 10 => O(Kmax)<= O(10) [acho que é ok]
+// Kmax <= 10 => O(Kmax)<= O(10)
 struct No{
-    uint8_t byte;
-    unordered_map<uint8_t, No*> filhos;
+    unordered_map<uint8_t, No*> filhos;// implementação original uint8_t filhos[257]
     vector<uint32_t>frequencias;// armazena as frequencias de cada byte no contexto
     No* pai; 
     uint32_t total; //soma de todas as frequências
@@ -24,13 +23,13 @@ struct No{
         frequencias.assign(257,0);
         pai = nullptr;
         total = 0;
-        byte = 0;
         tempo_de_vida = tempo;
     }
     
 };
 
-// Vai receber uma janela de contexto contendo J bytes vistos pelo PPM (vector<uint8_t>&bytes)
+// Estrutura relacional que conecta contextos semelhantes
+// EX: simbolo : abc => r - c -bc -abc
 struct trie_contexto{
     No* raiz;
     trie_contexto(){
@@ -57,7 +56,6 @@ struct trie_contexto{
             uint8_t b = *it;
             if(atual->filhos.find(b) == atual->filhos.end()) {
                 atual->filhos[b] = new No;
-                atual->filhos[b]->byte = b;
                 atual->filhos[b]->pai = atual; // faz a ligação da volta para a busca de Kpossivel -> K = -1(raiz)
             }
             atual = atual->filhos[b];
@@ -83,7 +81,7 @@ struct trie_contexto{
         
     }
 
-    // Calcula estatísticas de profundidade da trie
+    // Calcula estatísticas de profundidade da trie(DFS recursivo)
     void calcula_profundidades(No* no, int profundidade, vector<int>& contadores) {
         if (!no) return;
         if (profundidade < (int)contadores.size()) {
