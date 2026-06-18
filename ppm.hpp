@@ -7,23 +7,40 @@
 #include"estrutura_contexto.hpp"
 
 using namespace std;
+typedef struct Simbolo Simbolo;
+struct Simbolo{
+    uint8_t byte;
+    uint64_t bits_emitidos; // sequência de bits emitida pelo codificador
+};
+
 
 struct Ppm{
     trie_contexto arvore;
     deque<uint8_t> janela_atual;
     Codificador_aritmetico aritmetico;
     set<uint8_t>excluidos; // bytes ja vistos -> precisa ser limpo a cada novo byte 
-    deque<uint8_t> janela_j; // janela para acompanhar as métricas
+    deque<Simbolo> janela_j; // janela para acompanhar as métricas
     No* equiprovaveis;
     // Kmax e J vão ser passados como parâmetros da compilação
     int Kmax;
     int J;
-    Ppm(int k, int tamanho,int adaptacao){
+    float p;
+    int adapta;
+    uint64_t bits_inicial;
+    uint64_t bits_final;
+    Ppm(int k, int tamanho,int adaptacao,float per = 0.1f){
         Kmax = k;
         J = tamanho;
         equiprovaveis = new No();
         inicia_equiprovaveis();
+        p = per;
+        adapta = adaptacao;
     }
+
+    ~Ppm(){
+        delete equiprovaveis;
+    }
+
     void inicia_equiprovaveis(){
         for(int i = 0;i<256;i++)equiprovaveis -> frequencias[i]=1;
         equiprovaveis->total = 256;
@@ -74,12 +91,12 @@ struct Ppm{
 
     void processa_simbolo(uint8_t atual){
         bool codificado = false;
+        double l0 = calcula_comprimento_medio();
+        bits_inicial = aritmetico.bits_buffer.size();
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         No* contexto_inicial = contexto;
         //atualiza a janela para as métricas
-        if(janela_j.size()>=J)janela_j.pop_front();
-        janela_j.push_back(atual);
-
+        
         
         // percorre, subindo, procurando onde codificar o simbolo
         // a raiz está inclusa
@@ -126,6 +143,14 @@ struct Ppm{
             }
         }
 
+        // atualiza o tamanho emitido para o símbolo atual
+        bits_final = aritmetico.bits_buffer.size();  
+
+        if(janela_j.size()>=J) janela_j.pop_front();
+
+        janela_j.push_back({atual,bits_final - bits_inicial});
+        double lf = calcula_comprimento_medio();
+
         // sempre propaga a partir do contexto de ORDEM MAIS ALTA
         // tentado (contexto_inicial), independente de qual nível efetivamente
         // codificou o símbolo. Isso garante que todos os contextos no caminho
@@ -135,5 +160,32 @@ struct Ppm{
         atualiza_contexto(atual);
         // limpar excluidos para processar um byte novo
         excluidos.clear();
+
+        if(lf >(1+p)*l0){
+            if(adapta == 1) arvore.poda();
+            else if(adapta == 2) executa_reset();
+
+        }
     }
+
+    void executa_reset(){
+        // estado do codificador aritmético (low/high) NÃO é resetado:
+        // o fluxo de bits é contínuo
+        arvore.reset();
+        janela_atual.clear();
+        excluidos.clear();
+        inicia_equiprovaveis();
+    }
+
+    double calcula_comprimento_medio(){
+        // calcula o comprimento médio emitido na janela J mais recente
+        if(janela_j.empty())return 0.0;
+        uint64_t bits_emitidos_janela = 0;
+        for(const auto& simbolo : janela_j){
+            bits_emitidos_janela += simbolo.bits_emitidos;
+
+        }
+        return (double)bits_emitidos_janela / (double)janela_j.size();
+    }
+
 };
