@@ -118,4 +118,9 @@ struct trie_contexto{
         cout << "==========================\n" << endl;
     }
 
+    void reset() {
+        libera(raiz);
+        raiz = new No();
+    }
+    
 };
