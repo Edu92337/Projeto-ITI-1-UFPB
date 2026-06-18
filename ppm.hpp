@@ -9,7 +9,6 @@
 using namespace std;
 
 struct Ppm{
-    uint8_t alfabeto[256];
     trie_contexto arvore;
     deque<uint8_t> janela_atual;
     Codificador_aritmetico aritmetico;
@@ -20,7 +19,6 @@ struct Ppm{
     int Kmax;
     int J;
     Ppm(int k, int tamanho,int adaptacao){
-        for(int i = 0;i<256;i++)alfabeto[i] = i;
         Kmax = k;
         J = tamanho;
         equiprovaveis = new No();
