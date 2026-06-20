@@ -28,6 +28,8 @@ struct Ppm{
     int adapta;
     uint64_t bits_inicial;
     uint64_t bits_final;
+    uint64_t comprimento_emitido; // para análise de métricas
+    uint64_t total_simbolos_processados;
     Ppm(int k, int tamanho,int adaptacao,float per = 0.1f){
         Kmax = k;
         J = tamanho;
@@ -35,6 +37,7 @@ struct Ppm{
         inicia_equiprovaveis();
         p = per;
         adapta = adaptacao;
+        total_simbolos_processados = 0;
     }
 
     ~Ppm(){
@@ -90,6 +93,7 @@ struct Ppm{
     }
 
     void processa_simbolo(uint8_t atual){
+        total_simbolos_processados++;
         bool codificado = false;
         double l0 = calcula_comprimento_medio();
         bits_inicial = aritmetico.bits_buffer.size();
@@ -162,6 +166,7 @@ struct Ppm{
         excluidos.clear();
 
         if(lf >(1+p)*l0){
+            comprimento_emitido = calcula_comprimento_medio();
             if(adapta == 1) arvore.poda();
             else if(adapta == 2) executa_reset();
 
