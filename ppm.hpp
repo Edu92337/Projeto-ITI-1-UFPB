@@ -30,7 +30,13 @@ struct Ppm{
     uint64_t bits_final;
     uint64_t comprimento_emitido; // para análise de métricas
     uint64_t total_simbolos_processados;
-    Ppm(int k, int tamanho,int adaptacao,float per = 0.1f){
+
+    // ---- Contadores e log de eventos de adaptação (poda/reset) ----
+    uint64_t total_podas;
+    uint64_t total_resets;
+    bool log_eventos_adaptacao; // se true, imprime uma linha por evento (poda ou reset)
+
+    Ppm(int k, int tamanho,int adaptacao,float per = 0.4f, bool log_eventos = false){
         Kmax = k;
         J = tamanho;
         equiprovaveis = new No();
@@ -38,6 +44,9 @@ struct Ppm{
         p = per;
         adapta = adaptacao;
         total_simbolos_processados = 0;
+        total_podas = 0;
+        total_resets = 0;
+        log_eventos_adaptacao = log_eventos;
     }
 
     ~Ppm(){
@@ -167,10 +176,80 @@ struct Ppm{
 
         if(lf >(1+p)*l0){
             comprimento_emitido = calcula_comprimento_medio();
-            if(adapta == 1) arvore.poda();
-            else if(adapta == 2) executa_reset();
-
+            sinaliza_e_aplica_adaptacao();
         }
+    }
+
+    void sinaliza_e_aplica_adaptacao(){
+        // excluidos já foi limpo antes desta chamada (linha acima, no fim
+        // do processamento do símbolo de dado) -- o marcador nunca deve
+        // ser afetado por exclusões herdadas do símbolo anterior.
+        if(adapta == 1){
+            total_podas++;
+            if(log_eventos_adaptacao){
+                cout << "[PODA #" << total_podas
+                     << "] simbolo=" << total_simbolos_processados
+                     << " nos_trie_antes=" << conta_nos_trie()
+                     << endl;
+            }
+            arvore.poda();
+            if(log_eventos_adaptacao){
+                cout << "         nos_trie_depois=" << conta_nos_trie() << endl;
+            }
+        }else if(adapta == 2){
+            total_resets++;
+            if(log_eventos_adaptacao){
+                cout << "[RESET #" << total_resets
+                     << "] simbolo=" << total_simbolos_processados
+                     << " nos_trie_antes=" << conta_nos_trie()
+                     << endl;
+            }
+            executa_reset();
+        }
+        // adapta == 0: sem reset nem poda, nenhum marcador é emitido
+        // (o decoder, com adapta==0, também nunca vai checar por marcador,
+        // pois a condição de disparo nem é avaliada nesse modo -- ver
+        // observação na função de decodificação correspondente).
+    }
+
+    // Conta o número total de nós atualmente na trie (DFS simples).
+    // Usado só para logging/diagnóstico dos eventos de adaptação -- não é
+    // chamado no caminho principal de codificação, então seu custo não
+    // afeta o desempenho de compressão fora do log_eventos_adaptacao.
+    uint64_t conta_nos_trie(){
+        return conta_nos_recursivo(arvore.raiz);
+    }
+    uint64_t conta_nos_recursivo(No* no){
+        if(!no) return 0;
+        uint64_t total = 1;
+        for(auto& [_, filho] : no->filhos){
+            total += conta_nos_recursivo(filho);
+        }
+        return total;
+    }
+
+    // Imprime um resumo final dos eventos de adaptação ocorridos durante
+    // toda a compressão. Pensado para ser chamado uma vez, no fim do
+    // processamento (em main.cpp), independente de log_eventos_adaptacao
+    // estar ativo ou não -- ou seja, o sumário sempre fica disponível,
+    // mesmo que o log detalhado por evento tenha sido desligado para não
+    // poluir a saída em corpus grandes.
+    void imprime_resumo_adaptacao(){
+        cout << "\n=== RESUMO DE ADAPTAÇÃO (poda/reset) ===" << endl;
+        cout << "Modo de adaptação configurado (adapta=" << adapta << "): ";
+        if(adapta == 0) cout << "nenhum (sem poda, sem reset)";
+        else if(adapta == 1) cout << "poda por envelhecimento";
+        else if(adapta == 2) cout << "reset total";
+        cout << endl;
+        cout << "Total de PODAS disparadas: " << total_podas << endl;
+        cout << "Total de RESETS disparados: " << total_resets << endl;
+        if(total_simbolos_processados > 0 && (total_podas + total_resets) > 0){
+            double simbolos_por_evento =
+                (double)total_simbolos_processados / (double)(total_podas + total_resets);
+            cout << "Média de símbolos processados entre eventos: "
+                 << simbolos_por_evento << endl;
+        }
+        cout << "==========================================\n" << endl;
     }
 
     void executa_reset(){

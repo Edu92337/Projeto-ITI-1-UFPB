@@ -83,7 +83,7 @@ void codifica_arquivo(ifstream& arquivo,ofstream& dados_grafico, Ppm& modelo, bo
 //  path, Kmax, J, opção de poda ou clear(0,1,2), opção de analise de metricas(1,0) comprime(1,0)
 int main(int argc , char* argv[]) {
     if(argc < 7){
-        cout <<"Uso: ./a path_pasta k j adaptacao metricas comprime\n";
+        cout <<"Uso: ./a path_pasta k j adaptacao metricas comprime [log_adaptacao]\n";
         return 1;
     }
     string path = argv[1];
@@ -92,10 +92,17 @@ int main(int argc , char* argv[]) {
     int adaptacao  = atoi(argv[4]);
     bool metricas  = atoi(argv[5]) != 0;
     bool comprime  = atoi(argv[6]) != 0;
+    // parâmetro opcional (8º argumento): ativa log detalhado por evento de
+    // poda/reset (posição no arquivo + tamanho da trie antes/depois).
+    // Default desligado para não poluir a saída em corpus grandes -- o
+    // resumo agregado (contagem total) é sempre impresso no final,
+    // independente desta flag.
+    bool log_adaptacao = (argc >= 8) ? (atoi(argv[7]) != 0) : false;
+
     ofstream csv("resultado_compressao.csv");
 
     if(comprime){
-        Ppm modelo(k,j,adaptacao);
+        Ppm modelo(k,j,adaptacao,0.1f,log_adaptacao);
         uintmax_t tamanho_original = 0;
         uintmax_t arquivos_count = 0;
         error_code ec;
@@ -135,6 +142,11 @@ int main(int argc , char* argv[]) {
 
         // Imprime estatísticas da trie
         modelo.arvore.imprime_estatisticas_trie(k);
+
+        // Imprime o resumo de eventos de adaptação (poda/reset): quantos
+        // dispararam ao longo de toda a compressão, independente da flag
+        // de log detalhado por evento.
+        modelo.imprime_resumo_adaptacao();
 
         // salva o stream de bits resultante em arquivo
         modelo.aritmetico.salva_arquivo("saida.bin");
