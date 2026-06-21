@@ -61,9 +61,14 @@ struct Codificador_aritmetico{
         uint32_t freq_simbolo = 0;
         bool achou = false;
 
-        for(int i=0;i<257;i++){
+        // Percorre 0..258: símbolos de dado (0..255), ESCAPE (256),
+        // SYM_RESET (257) e SYM_PODA (258). A ordem cumulativa precisa ser
+        // IDÊNTICA entre encode e decode -- por isso usamos sempre o mesmo
+        // limite (NUM_SIMBOLOS_RESERVADOS) e a mesma ordem crescente de i
+        // em ambos os lados.
+        for(int i=0;i<NUM_SIMBOLOS_RESERVADOS;i++){
 
-            if(i != ESCAPE && excluidos.count(i))
+            if(i != (int)ESCAPE && i < 256 && excluidos.count(i))
                 continue;
 
             if(freq[i] == 0)
