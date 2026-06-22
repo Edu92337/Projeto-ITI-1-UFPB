@@ -268,4 +268,86 @@ struct Ppm{
         return (double)bits_emitidos_janela / (double)janela_j.size();
     }
 
+    // Decodifica um símbolo do arquivo comprimido.
+    //
+    // Espelha exatamente a lógica de processa_simbolo(): percorre a trie
+    // do maior contexto para o menor, injetando ESCAPE temporariamente
+    // antes de cada decode_byte() — assim o decodificador vê a mesma
+    // distribuição de probabilidade que o codificador usou.
+    //
+    // Bug corrigido: a versão anterior chamava decode_byte() duas vezes
+    // por nível (uma para tentar o símbolo, outra para "confirmar" o
+    // ESCAPE), consumindo o dobro de bits e dessincronizando o fluxo.
+    // Agora há UMA ÚNICA chamada por nível: se retornar ESCAPE, subimos;
+    // se retornar qualquer outro valor, é o símbolo decodificado.
+    uint8_t decodifica_simbolo(ifstream& arquivo_bits) {
+        uint32_t simbolo_decodificado = ESCAPE;
+
+        // Começa do maior contexto possível, igual ao codificador
+        No* contexto = arvore.busca_contexto_byte(janela_atual);
+        No* contexto_inicial = contexto;
+
+        // Percorre subindo na árvore até encontrar o símbolo ou esgotar contextos
+        while(contexto) {
+            // Injeta ESCAPE temporariamente, espelhando processa_simbolo().
+            // O codificador só emite ESCAPE quando o símbolo não existe no
+            // contexto atual — logo o decodificador precisa ver o mesmo
+            // alfabeto aumentado (símbolos reais + ESCAPE) para calcular
+            // o intervalo correto.
+            uint32_t freq_esc = calcula_escape(contexto);
+            contexto->frequencias[ESCAPE] = freq_esc;
+            contexto->total += freq_esc;
+
+            // Uma única chamada: decodifica o que estiver no fluxo neste nível.
+            uint32_t resultado = aritmetico.decode_byte(contexto, excluidos, arquivo_bits);
+
+            // Remove a injeção temporária — ESCAPE não persiste nas frequências
+            contexto->frequencias[ESCAPE] = 0;
+            contexto->total -= freq_esc;
+
+            if(resultado != ESCAPE) {
+                // Símbolo de dado encontrado neste contexto
+                simbolo_decodificado = resultado;
+                if(equiprovaveis->frequencias[resultado] > 0){
+                    equiprovaveis->frequencias[resultado]--;
+                    equiprovaveis->total--;
+                }
+                break;
+            }
+
+            // ESCAPE decodificado: adiciona símbolos deste contexto aos
+            // excluídos (exclusão de contexto) e sobe para o pai
+            insere_em_excluidos(contexto);
+            contexto = contexto->pai;
+        }
+
+        if(simbolo_decodificado == ESCAPE) {
+            // Não encontrou em nenhum contexto da trie: usa equiprováveis,
+            // igual ao fallback final de processa_simbolo().
+            simbolo_decodificado = aritmetico.decode_byte(equiprovaveis, excluidos, arquivo_bits);
+            if(simbolo_decodificado != ESCAPE && equiprovaveis->frequencias[simbolo_decodificado] > 0) {
+                equiprovaveis->frequencias[simbolo_decodificado]--;
+                equiprovaveis->total--;
+            }
+        }
+
+        // Atualiza trie e janela de contexto, igual ao final de processa_simbolo()
+        arvore.atualiza_frequencia(contexto_inicial, (uint8_t)simbolo_decodificado);
+        atualiza_contexto((uint8_t)simbolo_decodificado);
+        total_simbolos_processados++;
+
+        //ADAPTAÇÃO : RESET/PODA
+        double lf = calcula_comprimento_medio();
+        if(lf >(1+p)*bits_inicial){
+            comprimento_emitido = calcula_comprimento_medio();
+            sinaliza_e_aplica_adaptacao();
+        }
+        
+        // Limpa excluídos para o próximo símbolo
+        excluidos.clear();
+
+        return (uint8_t)simbolo_decodificado;
+    }
+
+
 };
