@@ -10,6 +10,11 @@
 #include"estrutura_contexto.hpp"
 using namespace std;
 
+typedef struct ArquivoInfo{
+    string nome;
+    uintmax_t tamanho;
+}ArquivoInfo;
+
 typedef struct Codificador_aritmetico Codificador_aritmetico;
 struct Codificador_aritmetico{
 
@@ -159,7 +164,7 @@ struct Codificador_aritmetico{
     }
 
     // Salva os bits em um arquivo
-    bool salva_arquivo(const string& nome_arquivo,const vector<ArquivoInfo>& arquivos,uint64_t tamanho_total_original){
+    bool salva_arquivo(const string& nome_arquivo,const vector<ArquivoInfo>& arquivos_vet,uint64_t tamanho_total_original){
         try{
             ofstream arquivo(nome_arquivo, ios::binary);
             if(!arquivo.is_open()){
@@ -170,9 +175,9 @@ struct Codificador_aritmetico{
             // quantidade de arquivos, nome e tamanho de cada arquivo,
             // tamanho total original (para análise de métricas)
             
-            uint64_t quantidade_arquivos = arquivos.size();
+            uint64_t quantidade_arquivos = arquivos_vet.size();
             arquivo.write((char*)&quantidade_arquivos, sizeof(uint64_t));
-            for(const auto& arq : arquivos){
+            for(const auto& arq : arquivos_vet){
                 uint16_t nome_tamanho = arq.nome.size();
                 arquivo.write((char*)&nome_tamanho, sizeof(uint16_t));
                 arquivo.write(arq.nome.data(),nome_tamanho);

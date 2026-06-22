@@ -9,10 +9,6 @@
 using namespace std;
 namespace fs = filesystem;
 
-typedef struct ArquivoInfo{
-    string nome;
-    uintmax_t tamanho;
-}ArquivoInfo;
 
 
 // intervalo de amostragem para o gráfico: grava 1 linha a cada
