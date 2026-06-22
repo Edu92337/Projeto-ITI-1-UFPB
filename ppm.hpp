@@ -206,10 +206,6 @@ struct Ppm{
             }
             executa_reset();
         }
-        // adapta == 0: sem reset nem poda, nenhum marcador é emitido
-        // (o decoder, com adapta==0, também nunca vai checar por marcador,
-        // pois a condição de disparo nem é avaliada nesse modo -- ver
-        // observação na função de decodificação correspondente).
     }
 
     // Conta o número total de nós atualmente na trie (DFS simples).

@@ -159,14 +159,26 @@ struct Codificador_aritmetico{
     }
 
     // Salva os bits em um arquivo
-    bool salva_arquivo(const string& nome_arquivo){
+    bool salva_arquivo(const string& nome_arquivo,const vector<ArquivoInfo>& arquivos,uint64_t tamanho_total_original){
         try{
             ofstream arquivo(nome_arquivo, ios::binary);
             if(!arquivo.is_open()){
                 cerr << "[ERRO] Não foi possível abrir arquivo: " << nome_arquivo << endl;
                 return false;
             }
+            // Coloca os Cabeçalhos: 
+            // quantidade de arquivos, nome e tamanho de cada arquivo,
+            // tamanho total original (para análise de métricas)
+            
+            uint64_t quantidade_arquivos = arquivos.size();
+            arquivo.write((char*)&quantidade_arquivos, sizeof(uint64_t));
+            for(const auto& arq : arquivos){
+                uint16_t nome_tamanho = arq.nome.size();
+                arquivo.write((char*)&nome_tamanho, sizeof(uint16_t));
+                arquivo.write(arq.nome.data(),nome_tamanho);
+                arquivo.write((char*)&arq.tamanho, sizeof(uint64_t));
 
+            }
             uint32_t tamanho_bits = bits_buffer.size();
             arquivo.write((char*)&tamanho_bits, sizeof(uint32_t));
 

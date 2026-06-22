@@ -9,6 +9,12 @@
 using namespace std;
 namespace fs = filesystem;
 
+typedef struct ArquivoInfo{
+    string nome;
+    uintmax_t tamanho;
+}ArquivoInfo;
+
+
 // intervalo de amostragem para o gráfico: grava 1 linha a cada
 // AMOSTRA_INTERVALO símbolos processados, em vez de 1 por símbolo.
 // Isso evita CSVs com centenas de milhões de linhas em corpus grandes
@@ -106,6 +112,7 @@ int main(int argc , char* argv[]) {
         uintmax_t tamanho_original = 0;
         uintmax_t arquivos_count = 0;
         error_code ec;
+        vector<ArquivoInfo> arquivos;
 
         for(auto& entrada : fs::recursive_directory_iterator(path, fs::directory_options::skip_permission_denied, ec)){
             if(ec){ 
@@ -113,6 +120,10 @@ int main(int argc , char* argv[]) {
             }
 
             if(fs::is_regular_file(entrada.status())){
+                uint64_t tamanho = fs::file_size(entrada.path(), ec);
+                string nome = entrada.path().filename().string();
+                arquivos.push_back({nome, tamanho});
+
                 tamanho_original += fs::file_size(entrada.path(), ec);
                 arquivos_count++;
 
@@ -149,7 +160,7 @@ int main(int argc , char* argv[]) {
         modelo.imprime_resumo_adaptacao();
 
         // salva o stream de bits resultante em arquivo
-        modelo.aritmetico.salva_arquivo("saida.bin");
+        modelo.aritmetico.salva_arquivo("saida.bin",arquivos,modelo.total_simbolos_processados);
         // gera o gráfico de comprimento médio no final da compressão
         if(metricas) gera_grafico();
 
