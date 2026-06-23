@@ -91,6 +91,9 @@ void descomprime_arquivo(const string& nome_arquivo_comprimido,
         cout << "[INFO] Descomprimindo: " << arq.nome
              << " (" << arq.tamanho << " bytes)" << endl;
 
+        fs::path caminho_saida(arq.nome);
+        if(caminho_saida.has_parent_path())
+            fs::create_directories(caminho_saida.parent_path());
         ofstream saida(arq.nome, ios::binary);
         if(!saida.is_open()){
             cerr << "[ERRO] Não foi possível criar: " << arq.nome << endl;
@@ -164,7 +167,7 @@ int main(int argc, char* argv[]){
 
             if(fs::is_regular_file(entrada.status())){
                 uint64_t tamanho = fs::file_size(entrada.path(), ec);
-                string   nome    = entrada.path().filename().string();
+                string nome = fs::relative(entrada.path(), path).string();
                 arquivos.push_back({nome, tamanho});
                 tamanho_original += tamanho;
                 arquivos_count++;
