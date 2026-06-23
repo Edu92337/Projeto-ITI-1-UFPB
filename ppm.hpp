@@ -105,7 +105,7 @@ struct Ppm{
         total_simbolos_processados++;
         bool codificado = false;
         double l0 = calcula_comprimento_medio();
-        bits_inicial = aritmetico.bits_buffer.size();
+        bits_inicial = aritmetico.bits_emitidos_total;
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         No* contexto_inicial = contexto;
         //atualiza a janela para as métricas
@@ -165,7 +165,7 @@ struct Ppm{
         }
 
         // atualiza o tamanho emitido para o símbolo atual
-        bits_final = aritmetico.bits_buffer.size();  
+        bits_final = aritmetico.bits_emitidos_total; 
 
         if(janela_j.size()>=J) janela_j.pop_front();
 
@@ -293,26 +293,20 @@ struct Ppm{
     uint8_t decodifica_simbolo(ifstream& arquivo_bits) {
         uint32_t simbolo_decodificado = ESCAPE;
         double l0 = calcula_comprimento_medio();
-        
-        // Começa do maior contexto possível, igual ao codificador
+
+        uint64_t bits_antes = aritmetico.bits_consumidos_total;
+
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         No* contexto_inicial = contexto;
 
-        // Percorre subindo na árvore até encontrar o símbolo ou esgotar contextos
         while(contexto) {
-            // Injeta ESCAPE temporariamente (exatamente como no encoder)
             uint32_t freq_esc = calcula_escape(contexto);
             contexto->frequencias[ESCAPE] = freq_esc;
             contexto->total += freq_esc;
-
-            // Tenta decodificar o próximo símbolo/escape neste contexto
             uint32_t resultado = aritmetico.decode_byte(contexto, excluidos, arquivo_bits);
-
-            // Desfaz a injeção temporária
             contexto->frequencias[ESCAPE] = 0;
             contexto->total -= freq_esc;
 
-            // Se o resultado não for ESCAPE, encontramos o símbolo decodificado com sucesso
             if(resultado != ESCAPE) {
                 simbolo_decodificado = resultado;
                 if(equiprovaveis->frequencias[resultado] > 0){
@@ -321,13 +315,10 @@ struct Ppm{
                 }
                 break;
             }
-
-            // Se decodificou ESCAPE → insere os símbolos deste contexto na lista de exclusão e sobe
             insere_em_excluidos(contexto);
             contexto = contexto->pai;
         }
 
-        // Se nenhum contexto superior decodificou o símbolo, decodifica com a tabela de equiprováveis
         if(simbolo_decodificado == ESCAPE) {
             simbolo_decodificado = aritmetico.decode_byte(equiprovaveis, excluidos, arquivo_bits);
             if(simbolo_decodificado != ESCAPE && equiprovaveis->frequencias[simbolo_decodificado] > 0) {
@@ -336,7 +327,12 @@ struct Ppm{
             }
         }
 
-        // Atualizações de estatísticas e contextos (idêntico ao encoder)
+        uint64_t bits_depois = aritmetico.bits_consumidos_total;
+
+        // Atualiza janela_j igual ao encoder
+        if(janela_j.size() >= J) janela_j.pop_front();
+        janela_j.push_back({(uint8_t)simbolo_decodificado, bits_depois - bits_antes});
+
         arvore.atualiza_frequencia(contexto_inicial, (uint8_t)simbolo_decodificado);
         atualiza_contexto((uint8_t)simbolo_decodificado);
         total_simbolos_processados++;

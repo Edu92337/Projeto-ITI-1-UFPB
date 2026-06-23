@@ -28,11 +28,12 @@ struct Codificador_aritmetico{
     // ---- Estado compartilhado encode/decode ----
     uint32_t low  = 0;
     uint32_t high = (uint32_t)TOP;
-
+    uint64_t bits_lidos = 0; // ← contador de bits lidos do fluxo (decode)
+    uint64_t bits_consumidos_total;
     // ---- Estado exclusivo do encode ----
     vector<bool> bits_buffer;
     uint32_t bits_pendentes = 0;
-
+     uint64_t bits_emitidos_total = 0;
     // ---- Estado exclusivo do decode ----
     // Registrador de 32 bits com os próximos bits do fluxo já lidos.
     // Inicializado uma única vez em prepara_decodificacao() e atualizado
@@ -240,6 +241,7 @@ struct Codificador_aritmetico{
         bool bit = (byte_leitura >> 7) & 1;
         byte_leitura <<= 1;
         bits_restantes_byte--;
+        bits_lidos++; // ← adiciona aqui
         return bit;
     }
 
@@ -252,6 +254,7 @@ struct Codificador_aritmetico{
         low   = 0;
         high  = (uint32_t)TOP;
         value = 0;
+        bits_consumidos_total = 0; // ← reinicia contador de bits consumidos
         for(int i = 0; i < 32; i++)
             value = (value << 1) | (le_bit(arquivo_bits) ? 1 : 0);
     }
