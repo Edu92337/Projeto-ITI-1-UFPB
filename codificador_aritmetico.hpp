@@ -275,10 +275,10 @@ struct Codificador_aritmetico{
                 value = ((value - (uint32_t)HALF) << 1) | (le_bit(arquivo_bits) ? 1 : 0);
             }
             else if(low >= FIRST_QTR && high < THIRD_QTR){
-                // E3: underflow – encoder NÃO emitiu bit, apenas postergou
+                // E3: underflow – Ajusta os intervalos e consome o bit do arquivo normalmente!
                 low   = (low   - (uint32_t)FIRST_QTR) << 1;
                 high  = ((high - (uint32_t)FIRST_QTR) << 1) | 1;
-                value = (value - (uint32_t)FIRST_QTR) << 1;   // NÃO chama le_bit()!
+                value = ((value - (uint32_t)FIRST_QTR) << 1) | (le_bit(arquivo_bits) ? 1 : 0);
             }
             else break;
         }
@@ -287,53 +287,50 @@ struct Codificador_aritmetico{
     // Decodifica um símbolo do fluxo usando o contexto dado.
     // Retorna ESCAPE=256 se o contexto estiver vazio (total==0 após excluídos)
     // ou se o intervalo decodificado corresponder ao ESCAPE injetado pelo PPM.
-    uint32_t decode_byte(No* contexto,
-                         const set<uint8_t>& excluidos,
-                         ifstream& arquivo_bits)
-    {
+    uint32_t decode_byte(No* contexto, const set<uint8_t>& excluidos, ifstream& arquivo_bits){
         auto& freq = contexto->frequencias;
+        
+        // Calcula o total real considerando as exclusões dinâmicas
         uint32_t total = contexto->total - contagem_excluidos(contexto, excluidos);
 
-        // Contexto vazio: encoder não emitiu nada aqui, não consome bits.
+        // Se o total for de fato 0 e não houver frequência de ESCAPE injetada,
+        // significa que não há dados válidos matematicamente.
         if(total == 0) return ESCAPE;
 
         uint64_t range = (uint64_t)high - (uint64_t)low + 1ULL;
+        uint64_t ponto = ((((uint64_t)value - (uint64_t)low + 1ULL) * (uint64_t)total) - 1ULL) / range;
 
-        // Mapeia `value` para um índice cumulativo — inverso do encode_byte:
-        //   encode: novo_low = low + range * cum / total
-        //   decode: cum = (value - low) * total / range
-        uint64_t ponto = ((uint64_t)value - (uint64_t)low) * (uint64_t)total / range;
-
-        // Percorre na MESMA ordem que encode_byte para encontrar o símbolo
-        uint32_t cumulativa   = 0;
+        uint32_t cumulativa = 0;
         uint32_t freq_simbolo = 0;
-        uint32_t simbolo_encontrado = ESCAPE;
+        uint32_t simbolo_encontrado = 0;
+        bool encontrou = false;
 
-        for(int i = 0; i < 257; i++){
-            if(i != (int)ESCAPE && excluidos.count(i)) continue;
+        for(int i = 0; i < 257; i++) {
+            if(i != (int)ESCAPE && excluidos.count((uint8_t)i)) continue;
             if(freq[i] == 0) continue;
 
-            if(ponto >= cumulativa && ponto < cumulativa + freq[i]){
+            if(ponto >= cumulativa && ponto < cumulativa + freq[i]) {
                 simbolo_encontrado = (uint32_t)i;
                 freq_simbolo = freq[i];
+                encontrou = true;
                 break;
             }
             cumulativa += freq[i];
         }
 
-        if(simbolo_encontrado == (uint32_t)ESCAPE){
-            //
-        } ;
+        if(!encontrou) {
+            // Fallback de segurança se falhar a precisão matemática
+            return ESCAPE;
+        }
 
-        uint64_t novo_high = (uint64_t)low + (range * (uint64_t)(cumulativa + freq_simbolo)) / total - 1ULL;
+        // Renormalização obrigatória do decodificador (Deve ser executada SEMPRE que ler um símbolo/escape)
+        uint64_t next_low = (uint64_t)low + (range * cumulativa) / total;
+        uint64_t next_high = (uint64_t)low + (range * (cumulativa + freq_simbolo)) / total - 1ULL;
+        low = (uint32_t)next_low;
+        high = (uint32_t)next_high;
 
-    uint64_t novo_low = (uint64_t)low + (range * (uint64_t)cumulativa) / total;
+        renormaliza_leitura(arquivo_bits);
 
-    low  = (uint32_t)novo_low;
-    high = (uint32_t)novo_high;
-
-    renormaliza_leitura(arquivo_bits);
-
-    return simbolo_encontrado;
+        return simbolo_encontrado;
     }
 };
