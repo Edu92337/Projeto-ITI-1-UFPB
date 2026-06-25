@@ -105,7 +105,6 @@ struct Ppm{
     void processa_simbolo(uint8_t atual){
         total_simbolos_processados++;
         bool codificado = false;
-        double l0 = calcula_comprimento_medio();
         bits_inicial = aritmetico.bits_emitidos_total;
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         No* contexto_inicial = contexto;
@@ -183,15 +182,11 @@ struct Ppm{
         excluidos.clear();
         if(bytes_na_janela >= J){
             lf = calcula_comprimento_medio();
-            if(lf>(1+p)*l0){
+            if(l0 > 0 && lf>(1+p)*l0){
                 sinaliza_e_aplica_adaptacao();
             }
             l0 = lf;
             bytes_na_janela = 0;
-        }
-        if(lf >(1+p)*l0){
-            comprimento_emitido = calcula_comprimento_medio();
-            sinaliza_e_aplica_adaptacao();
         }
     }
 
@@ -299,7 +294,6 @@ struct Ppm{
     
     uint8_t decodifica_simbolo(ifstream& arquivo_bits) {
         uint32_t simbolo_decodificado = ESCAPE;
-        double l0 = calcula_comprimento_medio();
 
         uint64_t bits_antes = aritmetico.bits_consumidos_total;
 
@@ -339,18 +333,21 @@ struct Ppm{
         // Atualiza janela_j igual ao encoder
         if(janela_j.size() >= J) janela_j.pop_front();
         janela_j.push_back({(uint8_t)simbolo_decodificado, bits_depois - bits_antes});
-
+        bytes_na_janela++;
         arvore.atualiza_frequencia(contexto_inicial, (uint8_t)simbolo_decodificado);
         atualiza_contexto((uint8_t)simbolo_decodificado);
         total_simbolos_processados++;
 
-        double lf = calcula_comprimento_medio();
-        if(lf > (1+p)*l0){
-            comprimento_emitido = calcula_comprimento_medio();
-            sinaliza_e_aplica_adaptacao();
-        }
-
         excluidos.clear();
+        if(bytes_na_janela >= J){
+            lf = calcula_comprimento_medio();
+            if(l0>0 && lf>(1+p)*l0){
+                sinaliza_e_aplica_adaptacao();
+            }
+            l0 = lf;
+            bytes_na_janela = 0;
+        }
+        
         return (uint8_t)simbolo_decodificado;
     }
 
