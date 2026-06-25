@@ -30,7 +30,8 @@ struct Ppm{
     uint64_t bits_final;
     uint64_t comprimento_emitido; // para análise de métricas
     uint64_t total_simbolos_processados;
-
+    double l0 = 0,lf = 0;
+    long long bytes_na_janela = 0;
     // ---- Contadores e log de eventos de adaptação (poda/reset) ----
     uint64_t total_podas;
     uint64_t total_resets;
@@ -170,8 +171,7 @@ struct Ppm{
         if(janela_j.size()>=J) janela_j.pop_front();
 
         janela_j.push_back({atual,bits_final - bits_inicial});
-        double lf = calcula_comprimento_medio();
-
+        bytes_na_janela++;
         // sempre propaga a partir do contexto de ORDEM MAIS ALTA
         // tentado (contexto_inicial), independente de qual nível efetivamente
         // codificou o símbolo. Isso garante que todos os contextos no caminho
@@ -181,7 +181,14 @@ struct Ppm{
         atualiza_contexto(atual);
         // limpar excluidos para processar um byte novo
         excluidos.clear();
-
+        if(bytes_na_janela >= J){
+            lf = calcula_comprimento_medio();
+            if(lf>(1+p)*l0){
+                sinaliza_e_aplica_adaptacao();
+            }
+            l0 = lf;
+            bytes_na_janela = 0;
+        }
         if(lf >(1+p)*l0){
             comprimento_emitido = calcula_comprimento_medio();
             sinaliza_e_aplica_adaptacao();
