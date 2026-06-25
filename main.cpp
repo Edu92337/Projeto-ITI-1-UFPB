@@ -42,7 +42,7 @@ void codifica_arquivo(ifstream& arquivo, ofstream& dados_grafico,
     arquivo.close();
 }
 
-void descomprime_arquivo(const string& nome_arquivo_comprimido,
+void descomprime_arquivo(const string& nome_arquivo_comprimido,Ppm& modelo,
                          int k, int j, int adaptacao, bool log_adaptacao)
 {
     ifstream arquivo(nome_arquivo_comprimido, ios::binary);
@@ -76,9 +76,6 @@ void descomprime_arquivo(const string& nome_arquivo_comprimido,
     uint32_t tamanho_bits;
     arquivo.read((char*)&tamanho_bits, sizeof(uint32_t));
     cout << "[INFO] Bits comprimidos: " << tamanho_bits << endl;
-
-    // 4. Inicializa PPM com os mesmos parâmetros da compressão
-    Ppm modelo(k, j, adaptacao, 0.1f, log_adaptacao);
 
     // Carrega os primeiros 32 bits do fluxo no registrador `value`.
     // DEVE ser chamado após ler todo o cabeçalho, com o ifstream
@@ -149,9 +146,8 @@ int main(int argc, char* argv[]){
     bool   log_adaptacao = (argc >= 8) ? (atoi(argv[7]) != 0) : false;
 
     ofstream csv("resultado_compressao.csv");
-
+    Ppm modelo(k, j, adaptacao, 0.05f, log_adaptacao);
     if(comprime){
-        Ppm modelo(k, j, adaptacao, 0.1f, log_adaptacao);
         uintmax_t tamanho_original = 0;
         uintmax_t arquivos_count   = 0;
         error_code ec;
@@ -208,7 +204,7 @@ int main(int argc, char* argv[]){
 
     } else {
         csv.close();
-        descomprime_arquivo(path, k, j, adaptacao, log_adaptacao);
+        descomprime_arquivo(path,modelo, k, j, adaptacao, log_adaptacao);
     }
 
     return 0;
