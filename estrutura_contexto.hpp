@@ -3,64 +3,49 @@
 #include<map>
 #include<unordered_map>
 #include<algorithm>
-#include<vector>
-#include<queue>
 #include<array>
 #include<deque>
 #include<cstdint>
+#include<vector>
+#include<queue>
 using namespace std;
 typedef struct No No;
 
-const uint32_t ESCAPE     = 256;
-const uint32_t SYM_RESET  = 257; // sinaliza ao decoder: reset total do modelo
-const uint32_t SYM_PODA   = 258; // sinaliza ao decoder: poda por envelhecimento
-const int NUM_SIMBOLOS_RESERVADOS = 259; // 0..255 dados + ESCAPE + RESET + PODA
-const int TEMPOV = 1000; // tempo de vida arbitrário
+const uint32_t ESCAPE = 256;
 
-// cada No é um contexto
+// cada No é um contexto 
 // a ideia seria percorrer até a folha e codificar na subida, para dar prioridade ao maior contexto
 // Kmax <= 10 => O(Kmax)<= O(10)
 struct No{
-    unordered_map<uint8_t, No*> filhos;// implementação original uint8_t filhos[257]
-
-    // frequencias: tabela AGREGADA (própria + soma de todos os descendentes),
-    // é o que o codificador aritmético usa diretamente para montar a
-    // distribuição cumulativa em encode_byte/decode_byte. Continua incluindo
-    // posições reservadas (ESCAPE/RESET/PODA), embora estas não persistam
-    // entre chamadas -- são injetadas e removidas na hora do uso.
-    vector<uint32_t> frequencias;
-
-    // frequencias_proprias: quanto ESTE nó especificamente recebeu como
-    // contexto de maior ordem ao longo da compressão (ou seja, as vezes em
-    // que este nó foi o contexto_inicial/maior contexto tentado para um
-    // símbolo, não contando o que veio "de baixo" via propagação para os
-    // pais). Só usa as 256 posições de símbolos de dado -- ESCAPE/RESET/PODA
-    // nunca são contados aqui, pois nunca persistem no modelo.
-    //
-    // É esta tabela que a poda envelhece (divide por 2). A tabela agregada
-    // (frequencias) é então RECONSTRUÍDA bottom-up a partir das próprias já
-    // envelhecidas de todo o caminho raiz->folha, preservando o invariante:
-    //   frequencias[i] (de um nó N) = frequencias_proprias[i] de N
-    //                                + soma de frequencias[i] de cada filho de N
+    // implementação original uint8_t filhos[257]
+    unordered_map<uint8_t, No*> filhos;
+    // armazena as frequencias de cada byte no contexto
+    vector<uint32_t>frequencias;
+     // armazena as frequências de cada byte que foram codificadas neste contexto (não acumulado)
     vector<uint32_t> frequencias_proprias;
-
-    No* pai;
-    uint32_t total; // soma de frequencias[0..255] (não inclui reservados)
-    int tempo_de_vida; // não usado pela poda por envelhecimento; reservado p/ outra estratégia
-
-    No(int tempo = TEMPOV){
-        frequencias.assign(NUM_SIMBOLOS_RESERVADOS, 0);
+    No* pai; 
+    uint32_t total; //soma de todas as frequências
+    No(){
+        frequencias.assign(257,0);
         frequencias_proprias.assign(256, 0);
         pai = nullptr;
         total = 0;
-        tempo_de_vida = tempo;
+
     }
+    
 };
 
 // Estrutura relacional que conecta contextos semelhantes
 // EX: simbolo : abc => r - c -bc -abc
 struct trie_contexto{
     No* raiz;
+    uint64_t num_nos = 1; // conta nós alocados (começa com 1 pela raiz)
+
+    // Limite máximo de nós antes de forçar poda.
+    // ~2KB por nó → 1.5M nós ≈ 3GB, razoável para máquinas com 8GB RAM.
+    // Pode ser ajustado via set_limite_nos() antes da compressão.
+    uint64_t limite_nos = 1500000;
+
     trie_contexto(){
         raiz = new No();
     }
@@ -68,30 +53,37 @@ struct trie_contexto{
         libera(raiz);
     }
 
+    void set_limite_nos(uint64_t limite){ limite_nos = limite; }
+    uint64_t get_num_nos() const { return num_nos; }
+    bool limite_atingido() const { return num_nos >= limite_nos; }
+
     void libera(No* no){
         if(!no) return;
         for(auto& [_, filho] : no->filhos)
             libera(filho);
-
+        num_nos--;
         delete no;
     }
 
-    // a partir do no Raiz vai percorrendo e fazendo a ligação do byte com todos os outros Nós
-    void insere_byte_em_contexto(const deque<uint8_t>&bytes){
+    // a partir do no Raiz vai percorrendo e fazendo a ligação do byte com todos os outros Nós.
+    // Retorna true se todos os nós foram inseridos, false se o limite foi atingido
+    // e a inserção foi interrompida (nós parcialmente inseridos até o ponto do limite).
+    bool insere_byte_em_contexto(const deque<uint8_t>&bytes){
         No* atual = raiz;
-        // inverte para que ramos com contextos iguais compartilhem Nós
         for(auto it = bytes.rbegin(); it != bytes.rend(); it++){
             uint8_t b = *it;
-            if(atual->filhos.find(b) == atual->filhos.end()) {
+            if(atual->filhos.find(b) == atual->filhos.end()){
+                if(num_nos >= limite_nos) return false; // limite atingido
                 atual->filhos[b] = new No;
-                atual->filhos[b]->pai = atual; // faz a ligação da volta para a busca de Kpossivel -> K = -1(raiz)
+                atual->filhos[b]->pai = atual;
+                num_nos++;
             }
             atual = atual->filhos[b];
         }
+        return true;
     }
-
-    // A partir da raiz vai percorrendo os nos que estão conectados/ contextos conectados
-    // até encontrar o maior contexto possível
+    // A partir da raiz vai percorrendo os nos que estão conectados/ contextos conectados 
+    //até encontrar o maior contexto possível 
     No* busca_contexto_byte(const deque<uint8_t>&contexto){
         No* atual = raiz;
         for(auto it = contexto.rbegin();it!=contexto.rend();it++){
@@ -102,15 +94,7 @@ struct trie_contexto{
         return atual;
     }
 
-    // faz a propagação para todos os contextos menores até a raiz.
-    // `contexto` aqui é sempre o contexto_inicial (maior contexto tentado),
-    // então É no nó `contexto` que a frequência é "própria"; a propagação
-    // para os ancestrais é só atualização da tabela agregada deles.
-    void atualiza_frequencia(No* contexto, uint8_t simbolo){
-        atualiza_frequencia_propria(contexto, simbolo);
-    }
 
-private:
     // Marca a frequência como "própria" do nó onde o símbolo foi de fato
     // observado como contexto de maior ordem, e propaga a contagem agregada
     // para todos os ancestrais (sem marcá-la como própria deles).
@@ -119,6 +103,8 @@ private:
         propaga_agregada(contexto, simbolo);
     }
 
+    // Antiga função de atualização de frequência,
+    // que marcava a frequência como própria em todos os contextos do caminho
     void propaga_agregada(No* no, uint8_t simbolo){
         no->frequencias[simbolo]++;
         no->total++;
@@ -126,7 +112,12 @@ private:
         propaga_agregada(no->pai, simbolo);
     }
 
-public:
+
+    // faz a propagação para todos os contextos menores até a raiz
+    void atualiza_frequencia(No* contexto, uint8_t simbolo){
+        atualiza_frequencia_propria(contexto, simbolo);
+    }
+
     // Calcula estatísticas de profundidade da trie(DFS recursivo)
     void calcula_profundidades(No* no, int profundidade, vector<int>& contadores) {
         if (!no) return;
@@ -138,14 +129,15 @@ public:
         }
     }
 
+
     void imprime_estatisticas_trie(int kmax) {
         vector<int> contadores(kmax + 2, 0);
         calcula_profundidades(raiz, 0, contadores);
-
+        
         cout << "\n=== ESTATÍSTICAS DA TRIE ===" << endl;
         cout << "Kmax: " << kmax << endl;
         cout << "Distribuição de profundidades:" << endl;
-
+        
         uint64_t total_nos = 0;
         for (int i = 0; i < (int)contadores.size(); i++) {
             if (contadores[i] > 0) {
@@ -155,10 +147,10 @@ public:
                 total_nos += contadores[i];
             }
         }
-
+        
         int nos_em_kmax = contadores[kmax];
         double percentual_kmax = (total_nos > 0) ? (100.0 * nos_em_kmax / total_nos) : 0;
-
+        
         cout << "\nTotal de nós: " << total_nos << endl;
         cout << "Nós em profundidade Kmax: " << nos_em_kmax << " (" << percentual_kmax << "%)" << endl;
         cout << "==========================\n" << endl;
@@ -167,36 +159,34 @@ public:
     void reset() {
         libera(raiz);
         raiz = new No();
+        num_nos = 1;
     }
-
-    // ---- Poda por envelhecimento exponencial ----
+     // ---- Poda por envelhecimento ----
     //
     // Critério: a cada poda, a frequência PRÓPRIA de cada nó (não a
     // agregada) é dividida por 2 (divisão inteira). A tabela agregada
     // (frequencias) de cada nó é então RECONSTRUÍDA bottom-up como:
+
     //   frequencias[i] = frequencias_proprias[i] (já envelhecida)
     //                   + soma de frequencias[i] de cada filho (após a
     //                     poda do filho, ou seja, já também envelhecida
     //                     recursivamente)
     //
+
     // Isso preserva o invariante "agregado = próprio + soma dos
     // descendentes" em qualquer instante, inclusive depois da poda --
     // ao contrário de simplesmente dividir a tabela agregada de cada nó
     // de forma independente, o que contaria a mesma divisão múltiplas
     // vezes (uma para o nó, outra embutida de novo nos pais) e
     // descalibraria o modelo.
-    //
+
     // Critério de remoção de nó: depois de envelhecido, se o nó não tem
-    // filhos E sua frequência própria é toda zero, ele é removido (his
-    // história não tem mais nada a contribuir). Nós internos com
-    // frequência própria zerada mas com filhos vivos são mantidos --
-    // são apenas estruturais, ainda necessários para a cadeia de pais
-    // usada pela propagação bottom-up de futuras atualizações.
+    // filhos E sua frequência própria é toda zero, ele é removido.
+
     void poda(){
         poda_recursiva(raiz);
     }
 
-private:
     // Executa a poda em pós-ordem e retorna a tabela agregada (256
     // posições, símbolos de dado) já recalculada do nó `no`, para que o
     // chamador (pai) possa somá-la à sua própria contribuição.
@@ -205,7 +195,11 @@ private:
         agregada_filhos.fill(0);
 
         // 1) Poda cada filho primeiro (pós-ordem) e acumula a agregada
-        //    resultante de cada um.
+        //    resultante de cada um. Critério de remoção de filho:
+        //    sem filhos próprios E total agregado pós-poda < 2.
+        //    Usar < 2 em vez de == 0 evita que nós raramente visitados
+        //    (frequência=1 → após /2 fica 0) sejam removidos todos de
+        //    uma vez, o que colapsaria a trie quase inteiramente.
         vector<uint8_t> filhos_para_remover;
         for(auto& [simbolo, filho] : no->filhos){
             array<uint32_t,256> agregada_filho = poda_recursiva(filho);
@@ -214,9 +208,10 @@ private:
             uint32_t soma_propria_filho = 0;
             for(int i = 0; i < 256; i++) soma_propria_filho += filho->frequencias_proprias[i];
 
-            if(filho_vazio && soma_propria_filho == 0){
+            // Só remove se folha E frequência própria zerou completamente
+            // (a agregada do filho já foi recalculada recursivamente)
+            if(filho_vazio && soma_propria_filho == 0 && filho->total == 0){
                 filhos_para_remover.push_back(simbolo);
-                // não soma a agregada de um filho que será removido
                 continue;
             }
 
@@ -225,6 +220,7 @@ private:
         for(uint8_t simbolo : filhos_para_remover){
             delete no->filhos[simbolo];
             no->filhos.erase(simbolo);
+            num_nos--;
         }
 
         // 2) Envelhece a frequência PRÓPRIA deste nó (divisão inteira por 2).
@@ -243,8 +239,6 @@ private:
         }
         // Posições reservadas nunca persistem fora do momento de uso.
         no->frequencias[ESCAPE]    = 0;
-        no->frequencias[SYM_RESET] = 0;
-        no->frequencias[SYM_PODA]  = 0;
         no->total = novo_total;
 
         // O que este nó contribui para o pai é a sua tabela agregada
@@ -254,6 +248,5 @@ private:
         for(int i = 0; i < 256; i++) agregada_deste_no[i] = no->frequencias[i];
         return agregada_deste_no;
     }
-
-public:
+    
 };

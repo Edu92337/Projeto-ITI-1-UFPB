@@ -1,166 +1,210 @@
 #include <iostream>
 #include <vector>
-#include<fstream>
-#include<filesystem>
-#include"codificador_aritmetico.hpp"
-#include"estrutura_contexto.hpp"
-#include"ppm.hpp"
+#include <fstream>
+#include <filesystem>
+#include "codificador_aritmetico.hpp"
+#include "estrutura_contexto.hpp"
+#include "ppm.hpp"
 #include <cstdlib>
 using namespace std;
 namespace fs = filesystem;
 
-// intervalo de amostragem para o gráfico: grava 1 linha a cada
-// AMOSTRA_INTERVALO símbolos processados, em vez de 1 por símbolo.
-// Isso evita CSVs com centenas de milhões de linhas em corpus grandes
-// (ex: Silesia) e mantém o gnuplot responsivo.
 const uint64_t AMOSTRA_INTERVALO = 5000;
 
-void gera_grafico() {
-
+void gera_grafico(){
     FILE* gp = popen("gnuplot", "w");
-
-    if(!gp){
-        std::cerr << "Erro ao abrir gnuplot\n";
-        return;
-    }
-
-    // Gera um arquivo de imagem (PNG) em vez de uma janela interativa.
-    // Isso evita depender de qualquer backend gráfico (Qt/wxt/x11), que
-    // pode ter conflitos de biblioteca dependendo da instalação do
-    // sistema (ex: conflito com libs empacotadas via snap).
+    if(!gp){ cerr << "Erro ao abrir gnuplot\n"; return; }
     fprintf(gp, "set terminal pngcairo size 1200,700\n");
     fprintf(gp, "set output 'grafico_comprimento_medio.png'\n");
-
     fprintf(gp, "set title 'Comprimento medio progressivo durante a compressao'\n");
     fprintf(gp, "set xlabel 'Simbolos processados (n)'\n");
     fprintf(gp, "set ylabel 'Comprimento medio (bits/simbolo)'\n");
     fprintf(gp, "set grid\n");
-    // Evita que o gnuplot interprete a vírgula do CSV como separador
-    // decimal (problema comum em sistemas com locale pt_BR) -- aqui
-    // deixamos explícito que vírgula é separador de COLUNA e ponto é
-    // separador decimal, independente do locale do sistema.
     fprintf(gp, "set datafile separator ','\n");
     fprintf(gp, "set decimalsign '.'\n");
-
-    fprintf(gp,
-        "plot 'resultado_compressao.csv' "
-        "using 1:2 with lines title 'PPM'\n"
-    );
-
+    fprintf(gp, "plot 'resultado_compressao.csv' using 1:2 with lines title 'PPM'\n");
     pclose(gp);
-
     cout << "[INFO] Grafico salvo em grafico_comprimento_medio.png" << endl;
 }
 
-
-void codifica_arquivo(ifstream& arquivo,ofstream& dados_grafico, Ppm& modelo, bool metricas){
+void codifica_arquivo(ifstream& arquivo, ofstream& dados_grafico,
+                      Ppm& modelo, bool metricas)
+{
     char byte;
-    while (arquivo.get(byte)){
-        // processa o byte visto
+    while(arquivo.get(byte)){
         modelo.processa_simbolo((uint8_t)byte);
-
-        
-
-        if (metricas){
-            // analisa as metricas na ultima janela de J bytes do ppm
-            // amostragem: só grava 1 linha a cada AMOSTRA_INTERVALO símbolos,
-            // em vez de 1 linha por símbolo (inviável para corpus grandes).
-            // Métrica gravada: comprimento médio PROGRESSIVO, ou seja,
-            // janela J usada internamente para a decisão de poda/reset).
-            if(modelo.total_simbolos_processados % AMOSTRA_INTERVALO == 0){
-                double media_progressiva =
-                    (double)modelo.aritmetico.bits_buffer.size()
-                    / (double)modelo.total_simbolos_processados;
-
-                dados_grafico << modelo.total_simbolos_processados << ","
-                            << media_progressiva << "\n";
-            }
+        if(metricas && modelo.total_simbolos_processados % AMOSTRA_INTERVALO == 0){
+            double media = (double)modelo.aritmetico.bits_buffer.size()
+                         / (double)modelo.total_simbolos_processados;
+            dados_grafico << modelo.total_simbolos_processados << "," << media << "\n";
         }
     }
     arquivo.close();
 }
 
-//  path, Kmax, J, opção de poda ou clear(0,1,2), opção de analise de metricas(1,0) comprime(1,0)
-int main(int argc , char* argv[]) {
+void descomprime_arquivo(const string& nome_arquivo_comprimido,Ppm& modelo,
+                         int k, int j, int adaptacao, bool log_adaptacao)
+{
+    ifstream arquivo(nome_arquivo_comprimido, ios::binary);
+    if(!arquivo.is_open()){
+        cerr << "[ERRO] Não foi possível abrir: " << nome_arquivo_comprimido << endl;
+        return;
+    }
+
+    cout << "[INFO] Iniciando descompressão de: " << nome_arquivo_comprimido << endl;
+
+    // 1. Lê quantidade de arquivos
+    uint64_t quantidade_arquivos;
+    arquivo.read((char*)&quantidade_arquivos, sizeof(uint64_t));
+    cout << "[INFO] Quantidade de arquivos: " << quantidade_arquivos << endl;
+
+    // 2. Lê metadados de cada arquivo
+    vector<ArquivoInfo> arquivos;
+    uint64_t tamanho_total_original = 0;
+    for(uint64_t i = 0; i < quantidade_arquivos; i++){
+        uint16_t nome_tamanho;
+        arquivo.read((char*)&nome_tamanho, sizeof(uint16_t));
+        string nome(nome_tamanho, '\0');
+        arquivo.read(&nome[0], nome_tamanho);
+        uint64_t tamanho;
+        arquivo.read((char*)&tamanho, sizeof(uint64_t));
+        arquivos.push_back({nome, tamanho});
+        tamanho_total_original += tamanho;
+    }
+
+    // 3. Lê tamanho dos bits comprimidos (usado só para informação)
+    uint32_t tamanho_bits;
+    arquivo.read((char*)&tamanho_bits, sizeof(uint32_t));
+    cout << "[INFO] Bits comprimidos: " << tamanho_bits << endl;
+
+    // Carrega os primeiros 32 bits do fluxo no registrador `value`.
+    // DEVE ser chamado após ler todo o cabeçalho, com o ifstream
+    // já posicionado no início dos dados comprimidos.
+    modelo.aritmetico.prepara_decodificacao(arquivo);
+
+    // 5. Descomprime arquivo a arquivo
+    uint64_t total_bytes_escritos = 0;
+    for(const auto& arq : arquivos){
+        cout << "[INFO] Descomprimindo: " << arq.nome
+             << " (" << arq.tamanho << " bytes)" << endl;
+
+        fs::path caminho_saida(arq.nome);
+        if(caminho_saida.has_parent_path())
+            fs::create_directories(caminho_saida.parent_path());
+        ofstream saida(arq.nome, ios::binary);
+        if(!saida.is_open()){
+            cerr << "[ERRO] Não foi possível criar: " << arq.nome << endl;
+            continue;
+        }
+
+        uint64_t progresso_anterior = 0;
+        for(uint64_t i = 0; i < arq.tamanho; i++){
+            uint8_t byte = modelo.decodifica_simbolo(arquivo);
+            saida.write((char*)&byte, 1);
+            total_bytes_escritos++;
+
+            uint64_t progresso = (i * 100) / arq.tamanho;
+            if(progresso != progresso_anterior && progresso % 10 == 0){
+                cout << "\r  Progresso: " << progresso << "%" << flush;
+                progresso_anterior = progresso;
+            }
+        }
+        cout << "\r  [OK] " << arq.nome << " (" << arq.tamanho << " bytes)" << endl;
+        saida.close();
+    }
+
+    arquivo.close();
+
+    cout << "[INFO] Descompressão concluída!" << endl;
+    cout << "[INFO] Total de bytes escritos: " << total_bytes_escritos << endl;
+    cout << "[INFO] Tamanho original esperado: " << tamanho_total_original << " bytes" << endl;
+
+    if(total_bytes_escritos == tamanho_total_original)
+        cout << "[OK] Verificação de integridade: PASSOU" << endl;
+    else{
+        cout << "[ERRO] Verificação de integridade: FALHOU" << endl;
+        cout << "  Esperado: " << tamanho_total_original
+             << "  Obtido: "  << total_bytes_escritos << endl;
+    }
+}
+
+// Uso:
+//   compressão:   ./a path_pasta k j adaptacao metricas 1 [log_adaptacao]
+//   descompressão:./a saida.bin  k j adaptacao 0        0 [log_adaptacao]
+//   (k, j, adaptacao DEVEM ser os mesmos usados na compressão)
+int main(int argc, char* argv[]){
     if(argc < 7){
-        cout <<"Uso: ./a path_pasta k j adaptacao metricas comprime [log_adaptacao]\n";
+        cout << "Uso: ./a path k j adaptacao metricas comprime [log_adaptacao]\n";
         return 1;
     }
-    string path = argv[1];
-    int k = atoi(argv[2]);
-    int j = atoi(argv[3]);
-    int adaptacao  = atoi(argv[4]);
-    bool metricas  = atoi(argv[5]) != 0;
-    bool comprime  = atoi(argv[6]) != 0;
-    // parâmetro opcional (8º argumento): ativa log detalhado por evento de
-    // poda/reset (posição no arquivo + tamanho da trie antes/depois).
-    // Default desligado para não poluir a saída em corpus grandes -- o
-    // resumo agregado (contagem total) é sempre impresso no final,
-    // independente desta flag.
-    bool log_adaptacao = (argc >= 8) ? (atoi(argv[7]) != 0) : false;
+    string path     = argv[1];
+    int    k        = atoi(argv[2]);
+    int    j        = atoi(argv[3]);
+    int    adaptacao = atoi(argv[4]);
+    bool   metricas  = atoi(argv[5]) != 0;
+    bool   comprime  = atoi(argv[6]) != 0;
+    bool   log_adaptacao = (argc >= 8) ? (atoi(argv[7]) != 0) : false;
 
     ofstream csv("resultado_compressao.csv");
-
+    Ppm modelo(k, j, adaptacao, 0.05f, log_adaptacao);
     if(comprime){
-        Ppm modelo(k,j,adaptacao,0.1f,log_adaptacao);
         uintmax_t tamanho_original = 0;
-        uintmax_t arquivos_count = 0;
+        uintmax_t arquivos_count   = 0;
         error_code ec;
+        vector<ArquivoInfo> arquivos;
 
-        for(auto& entrada : fs::recursive_directory_iterator(path, fs::directory_options::skip_permission_denied, ec)){
-            if(ec){ 
-                cerr << "Erro: " << ec.message() << endl; return 1; 
-            }
+        cout << "[INFO] Iniciando compressão (k=" << k
+             << " j=" << j << " adapta=" << adaptacao << ")" << endl;
+
+        for(auto& entrada : fs::recursive_directory_iterator(
+                path, fs::directory_options::skip_permission_denied, ec))
+        {
+            if(ec){ cerr << "Erro: " << ec.message() << endl; return 1; }
 
             if(fs::is_regular_file(entrada.status())){
-                tamanho_original += fs::file_size(entrada.path(), ec);
+                uint64_t tamanho = fs::file_size(entrada.path(), ec);
+                string nome = fs::relative(entrada.path(), path).string();
+                arquivos.push_back({nome, tamanho});
+                tamanho_original += tamanho;
                 arquivos_count++;
+
+                cout << "  Comprimindo: " << nome << " (" << tamanho << " bytes)" << endl;
 
                 ifstream arquivo(entrada.path(), ios::binary);
                 if(!arquivo.is_open()){
                     cerr << "Erro ao abrir: " << entrada.path() << endl;
                     return 1;
                 }
-                codifica_arquivo(arquivo,csv, modelo, metricas);
-                //análise das métricas parciais(lf > lo*(1+p)? -> pode ou clear)
+                codifica_arquivo(arquivo, csv, modelo, metricas);
             }
         }
 
-        cout << "[INFO] Arquivos encontrados: " << arquivos_count << endl;
-        cout << "[INFO] Tamanho original: " << tamanho_original << " bytes" << endl;
+        cout << "[INFO] Arquivos: " << arquivos_count
+             << "  Original: " << tamanho_original << " bytes" << endl;
 
-        // IMPORTANTE: força a escrita física do CSV no disco antes de
-        // chamar o gnuplot. Sem isso, os dados podem ainda estar só no
-        // buffer interno do ofstream (o destructor de "csv" só roda
-        // quando main() retorna, o que é DEPOIS de gera_grafico()),
-        // e o gnuplot lê um arquivo vazio/incompleto.
         csv.flush();
         csv.close();
 
-        // flush final: emite os bits restantes para fechar o intervalo
         modelo.aritmetico.finaliza_codificacao();
-
-        // Imprime estatísticas da trie
         modelo.arvore.imprime_estatisticas_trie(k);
-
-        // Imprime o resumo de eventos de adaptação (poda/reset): quantos
-        // dispararam ao longo de toda a compressão, independente da flag
-        // de log detalhado por evento.
         modelo.imprime_resumo_adaptacao();
 
-        // salva o stream de bits resultante em arquivo
-        modelo.aritmetico.salva_arquivo("saida.bin");
-        // gera o gráfico de comprimento médio no final da compressão
+        // tamanho_total_original é passado mas não usado no cabeçalho atual
+        // (cada arquivo já tem seu tamanho individual); mantido para eventual uso futuro.
+        modelo.aritmetico.salva_arquivo("saida.bin", arquivos, tamanho_original);
+
         if(metricas) gera_grafico();
 
-        cout << "[INFO] Tamanho comprimido: " << modelo.aritmetico.tamanho_comprimido() << " bytes" << endl;
-        cout << "Razão de Compressão: " 
-             << (100.0 *(1- (double)modelo.aritmetico.tamanho_comprimido() / tamanho_original))
+        cout << "[INFO] Tamanho comprimido: "
+             << modelo.aritmetico.tamanho_comprimido() << " bytes" << endl;
+        cout << "Razão de Compressão: "
+             << (100.0 * (1.0 - (double)modelo.aritmetico.tamanho_comprimido()
+                                / (double)tamanho_original))
              << " %" << endl;
 
-    }else{
-        // Inicia o descompressor
+    } else {
         csv.close();
+        descomprime_arquivo(path,modelo, k, j, adaptacao, log_adaptacao);
     }
 
     return 0;

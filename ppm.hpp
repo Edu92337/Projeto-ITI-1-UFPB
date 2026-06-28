@@ -30,13 +30,14 @@ struct Ppm{
     uint64_t bits_final;
     uint64_t comprimento_emitido; // para análise de métricas
     uint64_t total_simbolos_processados;
-
+    double l0 = 0,lf = 0;
+    long long bytes_na_janela = 0;
     // ---- Contadores e log de eventos de adaptação (poda/reset) ----
     uint64_t total_podas;
     uint64_t total_resets;
     bool log_eventos_adaptacao; // se true, imprime uma linha por evento (poda ou reset)
 
-    Ppm(int k, int tamanho,int adaptacao,float per = 0.1f, bool log_eventos = false){
+    Ppm(int k, int tamanho,int adaptacao,float per = 0.4f, bool log_eventos = false){
         Kmax = k;
         J = tamanho;
         equiprovaveis = new No();
@@ -53,23 +54,9 @@ struct Ppm{
         delete equiprovaveis;
     }
 
-    // Frequência fixa atribuída aos marcadores de adaptação (SYM_RESET/SYM_PODA)
-    // dentro do contexto equiprovaveis. É um valor pequeno e CONSTANTE -- não
-    // decai, não decrementa, sempre presente -- porque o encoder e o decoder
-    // precisam concordar sem ambiguidade sobre a distribuição usada para
-    // codificar/decodificar esse evento raro. Usamos 1, igual aos símbolos de
-    // dado em equiprovaveis, para manter a tabela simétrica e simples.
-    static const uint32_t FREQ_MARCADOR_ADAPTACAO = 1;
-
     void inicia_equiprovaveis(){
         for(int i = 0;i<256;i++)equiprovaveis -> frequencias[i]=1;
-        // Mantém SYM_RESET e SYM_PODA sempre presentes neste contexto, com
-        // frequência fixa, para que possam ser codificados/decodificados a
-        // qualquer momento sem precisar de injeção/remoção temporária (ao
-        // contrário do ESCAPE, que é injetado só na hora do uso).
-        equiprovaveis->frequencias[SYM_RESET] = FREQ_MARCADOR_ADAPTACAO;
-        equiprovaveis->frequencias[SYM_PODA]  = FREQ_MARCADOR_ADAPTACAO;
-        equiprovaveis->total = 256 + 2 * FREQ_MARCADOR_ADAPTACAO;
+        equiprovaveis->total = 256;
     }
 
     bool existe_contexto(No* contexto,uint8_t simbolo){
@@ -106,20 +93,18 @@ struct Ppm{
         }
     }
     
-    void atualiza_contexto(uint8_t atual){
-        // limita o comprimento do contexto atual para Kmax
-        // modifica aqui para não modificar a estrutura da trie
+    bool atualiza_contexto(uint8_t atual){
         janela_atual.push_back(atual);
-        if (janela_atual.size() > Kmax)
+        if (janela_atual.size() > (size_t)Kmax)
             janela_atual.pop_front();
-        arvore.insere_byte_em_contexto(janela_atual);
+        return arvore.insere_byte_em_contexto(janela_atual);
     }
 
     void processa_simbolo(uint8_t atual){
         total_simbolos_processados++;
         bool codificado = false;
         double l0 = calcula_comprimento_medio();
-        bits_inicial = aritmetico.bits_buffer.size();
+        bits_inicial = aritmetico.bits_emitidos_total;
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         No* contexto_inicial = contexto;
         //atualiza a janela para as métricas
@@ -127,35 +112,43 @@ struct Ppm{
         
         // percorre, subindo, procurando onde codificar o simbolo
         // a raiz está inclusa
-        while(contexto){
-            if(existe_contexto(contexto,atual) && excluidos.count(atual)==0){
-                // Tenta codificar o símbolo neste contexto
-                if(aritmetico.encode_byte(atual,contexto,excluidos)){
-                    codificado = true;
-                    if(equiprovaveis->frequencias[atual]>0){
-                        equiprovaveis->frequencias[atual]--;
-                        equiprovaveis->total --;
-                    }
-                    break;
-                }
-            }else if(excluidos.count(atual)==0){
-                // símbolo não existe neste contexto (e não está excluído):
-                // emite ESCAPE para sinalizar fallback ao contexto menor
-                // ESCAPE = número de símbolos distintos do contexto (não acumula estado)
+        while(contexto) {
+            if(excluidos.count(atual) == 0) {
+                // Injeta ESCAPE temporariamente para que decode_byte() 
+                //veja a mesma distribuição de probabilidade que encode_byte()
+                // estava dando erro de sincronia, o decode não conseguia 
+                // ver a mesma distribuição
                 uint32_t freq_esc = calcula_escape(contexto);
                 contexto->frequencias[ESCAPE] = freq_esc;
                 contexto->total += freq_esc;
-                bool escapou = aritmetico.encode_byte(ESCAPE, contexto, excluidos);
-                // desfaz injeção temporária — ESCAPE não persiste nas frequências
-                contexto->frequencias[ESCAPE] = 0;
-                contexto->total -= freq_esc;
-                if(escapou){
+
+                if(existe_contexto(contexto, atual)) {
+                    // Símbolo existe: codifica ele usando a tabela que INCLUI o ESCAPE
+                    aritmetico.encode_byte(atual, contexto, excluidos);
+                    codificado = true;
+
+                    // Remove a injeção temporária antes de terminar
+                    contexto->frequencias[ESCAPE] = 0;
+                    contexto->total -= freq_esc;
+
+                    if(equiprovaveis->frequencias[atual] > 0) {
+                        equiprovaveis->frequencias[atual]--;
+                        equiprovaveis->total--;
+                    }
+                    break; // Termina o loop, encontramos o símbolo
+                } 
+                else {
+                    // Símbolo não existe: codifica o ESCAPE
+                    aritmetico.encode_byte(ESCAPE, contexto, excluidos);
+
+                    // Remove a injeção temporária
+                    contexto->frequencias[ESCAPE] = 0;
+                    contexto->total -= freq_esc;
+
                     insere_em_excluidos(contexto);
-                    // Continua para tentar contextos menores
                 }
             }
-            // se atual está em excluidos: sobe silenciosamente, ESCAPE já foi
-            // emitido pelo nível que originou a exclusão
+            // Se o símbolo já foi excluído por um nível superior, sobe silenciosamente
             contexto = contexto->pai;
         }
         
@@ -171,83 +164,70 @@ struct Ppm{
         }
 
         // atualiza o tamanho emitido para o símbolo atual
-        bits_final = aritmetico.bits_buffer.size();  
+        bits_final = aritmetico.bits_emitidos_total; 
 
         if(janela_j.size()>=J) janela_j.pop_front();
 
         janela_j.push_back({atual,bits_final - bits_inicial});
-        double lf = calcula_comprimento_medio();
-
+        bytes_na_janela++;
         // sempre propaga a partir do contexto de ORDEM MAIS ALTA
         // tentado (contexto_inicial), independente de qual nível efetivamente
         // codificou o símbolo. Isso garante que todos os contextos no caminho
         // -1,0,1,...,Kmax aprendam sobre "atual", inclusive os que deram ESCAPE.
         arvore.atualiza_frequencia(contexto_inicial,atual);
 
-        atualiza_contexto(atual);
+        // Tenta inserir na trie. Se o limite de nós foi atingido,
+        // força poda imediata para liberar memória antes de continuar.
+        bool inseriu = atualiza_contexto(atual);
+        if(!inseriu){
+            if(adapta == 1){
+                arvore.poda();
+                total_podas++;
+                if(log_eventos_adaptacao)
+                    cout << "[PODA FORÇADA limite=" << arvore.get_num_nos()
+                         << "] simbolo=" << total_simbolos_processados << endl;
+            } else {
+                executa_reset();
+                total_resets++;
+                if(log_eventos_adaptacao)
+                    cout << "[RESET FORÇADO limite=" << arvore.get_num_nos()
+                         << "] simbolo=" << total_simbolos_processados << endl;
+            }
+            // Tenta inserir novamente após liberar memória
+            atualiza_contexto(atual);
+        }
         // limpar excluidos para processar um byte novo
         excluidos.clear();
-
+        if(bytes_na_janela >= J){
+            lf = calcula_comprimento_medio();
+            if(lf>(1+p)*l0){
+                sinaliza_e_aplica_adaptacao();
+            }
+            l0 = lf;
+            bytes_na_janela = 0;
+        }
         if(lf >(1+p)*l0){
             comprimento_emitido = calcula_comprimento_medio();
             sinaliza_e_aplica_adaptacao();
         }
     }
 
-    // Emite explicitamente, no stream de bits, um símbolo reservado
-    // (SYM_PODA ou SYM_RESET) indicando qual mecanismo de adaptação foi
-    // disparado, e só então aplica esse mecanismo ao modelo local.
-    //
-    // Por quê emitir o símbolo ANTES de aplicar a adaptação: o decoder,
-    // simetricamente, precisa decodificar esse marcador usando o modelo
-    // de equiprovaveis tal como ele estava ANTES da poda/reset (já que é
-    // exatamente esse estado que o encoder usou para codificar o
-    // marcador). Se a adaptação fosse aplicada primeiro, o contexto
-    // equiprovaveis usado para codificar/decodificar o marcador poderia
-    // já ter sido alterado (no caso do reset, ele É reinicializado dentro
-    // de executa_reset), quebrando a simetria.
-    //
-    // A condição "lf > (1+p)*l0" que leva até aqui é determinística e
-    // calculada a partir de informação que o decoder também possui no
-    // mesmo instante (bits consumidos pelo símbolo recém-decodificado),
-    // então o decoder sabe, sem nenhum bit adicional, QUANDO esperar um
-    // marcador. O símbolo em si (PODA vs RESET) é que precisa ser
-    // codificado, pois é uma decisão de configuração (parâmetro `adapta`)
-    // que os dados sozinhos não permitem deduzir.
     void sinaliza_e_aplica_adaptacao(){
-        // excluidos já foi limpo antes desta chamada (linha acima, no fim
-        // do processamento do símbolo de dado) -- o marcador nunca deve
-        // ser afetado por exclusões herdadas do símbolo anterior.
         if(adapta == 1){
-            bool ok = aritmetico.encode_byte(SYM_PODA, equiprovaveis, excluidos);
-            (void)ok; // a frequência do marcador é fixa e nunca zero: encode_byte sempre deve suceder aqui
             total_podas++;
-            if(log_eventos_adaptacao){
+            if(log_eventos_adaptacao)
                 cout << "[PODA #" << total_podas
                      << "] simbolo=" << total_simbolos_processados
-                     << " nos_trie_antes=" << conta_nos_trie()
-                     << endl;
-            }
+                     << " nos=" << arvore.get_num_nos() << endl;
             arvore.poda();
-            if(log_eventos_adaptacao){
-                cout << "         nos_trie_depois=" << conta_nos_trie() << endl;
-            }
         }else if(adapta == 2){
-            bool ok = aritmetico.encode_byte(SYM_RESET, equiprovaveis, excluidos);
-            (void)ok;
             total_resets++;
-            if(log_eventos_adaptacao){
+            if(log_eventos_adaptacao)
                 cout << "[RESET #" << total_resets
                      << "] simbolo=" << total_simbolos_processados
-                     << " nos_trie_antes=" << conta_nos_trie()
-                     << endl;
-            }
+                     << " nos=" << arvore.get_num_nos() << endl;
             executa_reset();
         }
-        // adapta == 0: sem reset nem poda, nenhum marcador é emitido
-        // (o decoder, com adapta==0, também nunca vai checar por marcador,
-        // pois a condição de disparo nem é avaliada nesse modo -- ver
-        // observação na função de decodificação correspondente).
     }
 
     // Conta o número total de nós atualmente na trie (DFS simples).
@@ -308,6 +288,83 @@ struct Ppm{
 
         }
         return (double)bits_emitidos_janela / (double)janela_j.size();
+    }
+
+    // Decodifica um símbolo do arquivo comprimido.
+    //
+    // Espelha exatamente a lógica de processa_simbolo(): percorre a trie
+    // do maior contexto para o menor, injetando ESCAPE temporariamente
+    // antes de cada decode_byte() — assim o decodificador vê a mesma
+    // distribuição de probabilidade que o codificador usou.
+    //
+    // Bug corrigido: a versão anterior chamava decode_byte() duas vezes
+    // por nível (uma para tentar o símbolo, outra para "confirmar" o
+    // ESCAPE), consumindo o dobro de bits e dessincronizando o fluxo.
+    // Agora há UMA ÚNICA chamada por nível: se retornar ESCAPE, subimos;
+    // se retornar qualquer outro valor, é o símbolo decodificado.
+
+    
+    uint8_t decodifica_simbolo(ifstream& arquivo_bits) {
+        uint32_t simbolo_decodificado = ESCAPE;
+        double l0 = calcula_comprimento_medio();
+
+        uint64_t bits_antes = aritmetico.bits_consumidos_total;
+
+        No* contexto = arvore.busca_contexto_byte(janela_atual);
+        No* contexto_inicial = contexto;
+
+        while(contexto) {
+            uint32_t freq_esc = calcula_escape(contexto);
+            contexto->frequencias[ESCAPE] = freq_esc;
+            contexto->total += freq_esc;
+            uint32_t resultado = aritmetico.decode_byte(contexto, excluidos, arquivo_bits);
+            contexto->frequencias[ESCAPE] = 0;
+            contexto->total -= freq_esc;
+
+            if(resultado != ESCAPE) {
+                simbolo_decodificado = resultado;
+                if(equiprovaveis->frequencias[resultado] > 0){
+                    equiprovaveis->frequencias[resultado]--;
+                    equiprovaveis->total--;
+                }
+                break;
+            }
+            insere_em_excluidos(contexto);
+            contexto = contexto->pai;
+        }
+
+        if(simbolo_decodificado == ESCAPE) {
+            simbolo_decodificado = aritmetico.decode_byte(equiprovaveis, excluidos, arquivo_bits);
+            if(simbolo_decodificado != ESCAPE && equiprovaveis->frequencias[simbolo_decodificado] > 0) {
+                equiprovaveis->frequencias[simbolo_decodificado]--;
+                equiprovaveis->total--;
+            }
+        }
+
+        uint64_t bits_depois = aritmetico.bits_consumidos_total;
+
+        // Atualiza janela_j igual ao encoder
+        if(janela_j.size() >= J) janela_j.pop_front();
+        janela_j.push_back({(uint8_t)simbolo_decodificado, bits_depois - bits_antes});
+
+        arvore.atualiza_frequencia(contexto_inicial, (uint8_t)simbolo_decodificado);
+
+        bool inseriu = atualiza_contexto((uint8_t)simbolo_decodificado);
+        if(!inseriu){
+            if(adapta == 1){ arvore.poda(); total_podas++; }
+            else           { executa_reset(); total_resets++; }
+            atualiza_contexto((uint8_t)simbolo_decodificado);
+        }
+        total_simbolos_processados++;
+
+        double lf = calcula_comprimento_medio();
+        if(lf > (1+p)*l0){
+            comprimento_emitido = calcula_comprimento_medio();
+            sinaliza_e_aplica_adaptacao();
+        }
+
+        excluidos.clear();
+        return (uint8_t)simbolo_decodificado;
     }
 
 };
