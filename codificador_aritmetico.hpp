@@ -136,6 +136,7 @@ struct Codificador_aritmetico{
 
     void escreve_bit(bool bit){
         bits_buffer.push_back(bit);
+        bits_emitidos_total++;
     }
 
     void escreve_bit_com_pendentes(bool bit){

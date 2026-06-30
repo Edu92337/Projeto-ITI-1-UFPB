@@ -103,7 +103,6 @@ struct Ppm{
     void processa_simbolo(uint8_t atual){
         total_simbolos_processados++;
         bool codificado = false;
-        double l0 = calcula_comprimento_medio();
         bits_inicial = aritmetico.bits_emitidos_total;
         No* contexto = arvore.busca_contexto_byte(janela_atual);
         No* contexto_inicial = contexto;
@@ -198,17 +197,20 @@ struct Ppm{
         }
         // limpar excluidos para processar um byte novo
         excluidos.clear();
+
+        // Monitoramento de taxa local por janelas de J símbolos.
+        // A condição lf>(1+p)*l0 é avaliada, mas a ação só é tomada
+        // para adapta=1 (poda), pois o reset (adapta=2) requer sinalização
+        // explícita no stream para garantir sincronia com o decoder —
+        // mecanismo não implementado nesta versão. Para adapta=2,
+        // a adaptação ocorre apenas via limite de nós (poda forçada).
         if(bytes_na_janela >= J){
             lf = calcula_comprimento_medio();
-            if(lf>(1+p)*l0){
+            if(lf > (1+p)*l0 && l0 > 0 && adapta == 1){
                 sinaliza_e_aplica_adaptacao();
             }
             l0 = lf;
             bytes_na_janela = 0;
-        }
-        if(lf >(1+p)*l0){
-            comprimento_emitido = calcula_comprimento_medio();
-            sinaliza_e_aplica_adaptacao();
         }
     }
 
@@ -272,10 +274,17 @@ struct Ppm{
 
     void executa_reset(){
         // estado do codificador aritmético (low/high) NÃO é resetado:
-        // o fluxo de bits é contínuo
+        // o fluxo de bits é contínuo.
+        // janela_j, l0 e bytes_na_janela SÃO resetados: após um reset do
+        // modelo, a comparação de comprimento médio deve recomeçar do zero,
+        // pois l0 de antes do reset não é comparável com lf depois do reset.
         arvore.reset();
         janela_atual.clear();
         excluidos.clear();
+        janela_j.clear();
+        l0 = 0;
+        lf = 0;
+        bytes_na_janela = 0;
         inicia_equiprovaveis();
     }
 
@@ -306,7 +315,6 @@ struct Ppm{
     
     uint8_t decodifica_simbolo(ifstream& arquivo_bits) {
         uint32_t simbolo_decodificado = ESCAPE;
-        double l0 = calcula_comprimento_medio();
 
         uint64_t bits_antes = aritmetico.bits_consumidos_total;
 
@@ -344,8 +352,9 @@ struct Ppm{
         uint64_t bits_depois = aritmetico.bits_consumidos_total;
 
         // Atualiza janela_j igual ao encoder
-        if(janela_j.size() >= J) janela_j.pop_front();
+        if((int)janela_j.size() >= J) janela_j.pop_front();
         janela_j.push_back({(uint8_t)simbolo_decodificado, bits_depois - bits_antes});
+        bytes_na_janela++;
 
         arvore.atualiza_frequencia(contexto_inicial, (uint8_t)simbolo_decodificado);
 
@@ -357,10 +366,14 @@ struct Ppm{
         }
         total_simbolos_processados++;
 
-        double lf = calcula_comprimento_medio();
-        if(lf > (1+p)*l0){
-            comprimento_emitido = calcula_comprimento_medio();
-            sinaliza_e_aplica_adaptacao();
+        // Espelha exatamente a condição do encoder
+        if(bytes_na_janela >= J){
+            lf = calcula_comprimento_medio();
+            if(lf > (1+p)*l0 && l0 > 0 && adapta == 1){
+                sinaliza_e_aplica_adaptacao();
+            }
+            l0 = lf;
+            bytes_na_janela = 0;
         }
 
         excluidos.clear();
